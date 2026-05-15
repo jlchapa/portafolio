@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="540" viewBox="0 0 1260 540">
+  <rect width="1260" height="540" fill="#0a0a0c"/>
+  <line x1="0" y1="0" x2="1260" y2="540" stroke="#1a1a1e" stroke-width="1"/>
+  <line x1="1260" y1="0" x2="0" y2="540" stroke="#1a1a1e" stroke-width="1"/>
+  <rect x="1" y="1" width="1258" height="538" fill="none" stroke="#1a1a1e" stroke-width="1"/>
+  <text x="630" y="255" font-family="monospace" font-size="13" fill="#3a3a40" text-anchor="middle">investing.svg</text>
+  <text x="630" y="278" font-family="monospace" font-size="11" fill="#2a2a2e" text-anchor="middle">replace with project cover image</text>
+</svg>

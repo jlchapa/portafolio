@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YOUR_HANDLE — Vibe coded with AI</title><!-- TODO: replace YOUR_HANDLE with your name/handle -->
+  <meta name="description" content="YOUR_HANDLE — a small collection of side projects, all vibe-coded with AI." /><!-- TODO: update description -->
+
+  <!-- Type -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;1,300;1,400&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+
+</head>
+<body>
+  <!-- Solid page backdrop (visible after the hero) -->
+  <div class="page-bg" aria-hidden="true"></div>
+  <!-- Animated shader: hero only, fades out on scroll -->
+  <shader-bg></shader-bg>
+  <!-- Soft blend strip eases the shader into the solid bg -->
+  <div class="bg-blend" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <!-- Top nav -->
+  <header class="nav">
+    <div class="brand">
+      <span class="dot"></span>
+      <span>YOUR_HANDLE</span><!-- TODO: your name/handle -->
+    </div>
+    <nav class="links">
+      <a href="#work">Work</a>
+      <a href="#about">About</a>
+      <a href="#oss">Open source</a>
+      <a href="#contact">Contact</a>
+    </nav>
+  </header>
+
+  <main class="shell">
+
+    <!-- HERO -->
+    <section class="hero">
+      <div class="eyebrow">Personal index — 2026</div>
+      <h1>
+        Vibe coded<br/>
+        <span class="accent">with AI.</span>
+      </h1>
+      <p class="tagline">
+        A small workshop of side projects by YOUR_HANDLE — built late at night, prompt by prompt, with whatever model is winning that week.<!-- TODO: update tagline -->
+      </p>
+      <div class="meta">
+        <div><b>03</b><span>Active projects</span></div>
+        <div><b>Local-first</b><span>Where it makes sense</span></div>
+        <div><b>github.com/YOUR_HANDLE</b><span>Source &amp; releases</span></div><!-- TODO: your GitHub URL -->
+      </div>
+      <div class="scroll-cue">Scroll</div>
+    </section>
+
+    <!-- WORK -->
+    <section class="section" id="work">
+      <header class="section-head">
+        <div class="index">§ 01 — Selected work</div>
+        <h2>A few experiments<br/>that escaped the <em>tab graveyard.</em></h2>
+      </header>
+
+      <div class="projects">
+
+        <a class="project" href="#" target="_blank" rel="noreferrer">
+          <div class="thumb">
+            <span class="badge">Featured · Finance</span>
+            <img src="images/investing.svg" alt="Investing project cover" />
+          </div>
+          <span class="arrow">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M3 11 L11 3"/><path d="M5 3 L11 3 L11 9"/>
+            </svg>
+          </span>
+          <div class="body">
+            <div class="row">
+              <h3>Investing</h3>
+              <span class="num">/01</span>
+            </div>
+            <p>A small reasoning tool that helps you decide when you can actually fire — runs your numbers, your assumptions, your withdrawal rate, and tells you the truth.</p>
+            <div class="tags">
+              <span>Web</span><span>Finance</span><span>Local data</span>
+            </div>
+          </div>
+        </a>
+
+        <a class="project" href="#" target="_blank" rel="noreferrer">
+          <div class="thumb">
+            <span class="badge">App · iOS</span>
+            <img src="images/laundry-app.svg" alt="LaundryApp project cover" />
+          </div>
+          <span class="arrow">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M3 11 L11 3"/><path d="M5 3 L11 3 L11 9"/>
+            </svg>
+          </span>
+          <div class="body">
+            <div class="row">
+              <h3>LaundryApp</h3>
+              <span class="num">/02</span>
+            </div>
+            <p>Quietly tracks loads, cycles, and the timer you always forget. Built for one apartment, shared with a household.</p>
+            <div class="tags">
+              <span>Mobile</span><span>Routines</span>
+            </div>
+          </div>
+        </a>
+
+        <a class="project" href="#" target="_blank" rel="noreferrer">
+          <div class="thumb">
+            <span class="badge">App · Local AI</span>
+            <img src="images/gym-progress.svg" alt="GymProgress project cover" />
+          </div>
+          <span class="arrow">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M3 11 L11 3"/><path d="M5 3 L11 3 L11 9"/>
+            </svg>
+          </span>
+          <div class="body">
+            <div class="row">
+              <h3>GymProgress</h3>
+              <span class="num">/03</span>
+            </div>
+            <p>Snap a mirror photo every week — a small on-device model reads silhouette, posture, and composition trends. Photos never leave the phone.</p>
+            <div class="tags">
+              <span>iOS</span><span>On-device ML</span><span>Health</span>
+            </div>
+          </div>
+        </a>
+
+      </div>
+    </section>
+
+    <!-- ABOUT -->
+    <section class="section" id="about">
+      <header class="section-head">
+        <div class="index">§ 02 — About</div>
+        <h2>One person, <em>three projects,</em><br/>and an unreasonable number of half-finished ones.</h2>
+      </header>
+      <div class="about">
+        <p class="lede">
+          I build small, opinionated tools for myself, then leave them online in case anyone else wants them. Most are <em>vibe-coded with AI</em> — written in long, loose sessions where I describe what I want and refine until it feels right.
+        </p>
+        <div class="body">
+          <p>
+            I'm interested in software that respects your data, runs without a server when it can, and tells you the truth even when the answer isn't fun. Calm interfaces, honest defaults, and weekend-sized ambitions.
+          </p>
+          <p>
+            If something here is useful to you, that's the whole point. If you'd like to work on something together, my inbox is open.
+          </p>
+          <dl class="kv">
+            <dt>Based</dt><dd>On the internet<!-- TODO: · Your timezone/location --></dd>
+            <dt>Stack</dt><dd>TypeScript, Swift, web platform, whatever ships</dd>
+            <dt>Tools</dt><dd>Cursor, Claude, ChatGPT, the terminal</dd>
+            <dt>Ethos</dt><dd>Local-first · Calm UX · Quiet code</dd>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <!-- OPEN SOURCE -->
+    <section class="section" id="oss">
+      <header class="section-head">
+        <div class="index">§ 03 — Open source</div>
+        <h2>Patches, forks, <em>and the occasional issue</em> nobody asked for.</h2>
+      </header>
+      <div class="oss-list">
+
+        <a class="oss-row" href="#" target="_blank" rel="noreferrer">
+          <span class="num">01</span>
+          <span class="repo"><span class="dim">github.com/</span>YOUR_HANDLE/repo-1</span><!-- TODO: your GitHub repo -->
+          <span class="blurb">Self-hosted retirement calculator</span>
+          <span class="arrow-x">→</span>
+        </a>
+        <a class="oss-row" href="#" target="_blank" rel="noreferrer">
+          <span class="num">02</span>
+          <span class="repo"><span class="dim">github.com/</span>YOUR_HANDLE/repo-2</span><!-- TODO: your GitHub repo -->
+          <span class="blurb">Household laundry tracker</span>
+          <span class="arrow-x">→</span>
+        </a>
+        <a class="oss-row" href="#" target="_blank" rel="noreferrer">
+          <span class="num">03</span>
+          <span class="repo"><span class="dim">github.com/</span>YOUR_HANDLE/repo-3</span><!-- TODO: your GitHub repo -->
+          <span class="blurb">On-device progress tracking from photos</span>
+          <span class="arrow-x">→</span>
+        </a>
+        <a class="oss-row" href="#" target="_blank" rel="noreferrer">
+          <span class="num">04</span>
+          <span class="repo"><span class="dim">github.com/</span>YOUR_HANDLE/dotfiles</span><!-- TODO: your GitHub repo -->
+          <span class="blurb">My terminal, lightly opinionated</span>
+          <span class="arrow-x">→</span>
+        </a>
+        <a class="oss-row" href="#" target="_blank" rel="noreferrer">
+          <span class="num">05</span>
+          <span class="repo"><span class="dim">github.com/</span>YOUR_HANDLE/YOUR_HANDLE.dev</span><!-- TODO: this site's repo -->
+          <span class="blurb">This site. Vanilla, no framework.</span>
+          <span class="arrow-x">→</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer" id="contact">
+      <h4>Say hi —<br/><em>build something</em>.</h4>
+      <div class="col">
+        <div class="label">Elsewhere</div>
+        <a href="#" target="_blank" rel="noreferrer">github.com/YOUR_HANDLE ↗</a><!-- TODO: your GitHub URL -->
+        <a href="#" target="_blank" rel="noreferrer">x.com/YOUR_HANDLE ↗</a><!-- TODO: your X/Twitter URL -->
+        <a href="#" target="_blank" rel="noreferrer">read.cv/YOUR_HANDLE ↗</a><!-- TODO: your read.cv or remove -->
+      </div>
+      <div class="col">
+        <div class="label">Direct</div>
+        <a href="mailto:you@example.com">you@example.com</a><!-- TODO: your email address -->
+        <a href="#" target="_blank" rel="noreferrer">Schedule a call ↗</a>
+      </div>
+      <div class="copy">
+        <span>© YOUR_HANDLE — 2026</span><!-- TODO: your name/handle -->
+        <span>Made by hand · Vibe coded with AI</span>
+      </div>
+    </footer>
+
+  </main>
+
+  <!-- Web components -->
+  <script src="shader-bg.js"></script>
+
+  <script>
+    // Drive --scroll-fade (0..1) based on hero scroll progress.
+    // 0 = top of page (full shader), 1 = scrolled past hero (solid bg).
+    (function () {
+      const root = document.documentElement;
+      const sb = document.querySelector("shader-bg");
+      let raf = 0;
+      function update() {
+        raf = 0;
+        const vh = window.innerHeight || 1;
+        // Fade across the first 70% of the viewport height of scroll.
+        const t = Math.min(1, Math.max(0, window.scrollY / (vh * 0.7)));
+        root.style.setProperty("--scroll-fade", t.toFixed(3));
+        // Hide the shader fully once invisible to free GPU.
+        if (sb) sb.style.visibility = t >= 0.999 ? "hidden" : "visible";
+      }
+      function onScroll() { if (!raf) raf = requestAnimationFrame(update); }
+      window.addEventListener("scroll", onScroll, { passive: true });
+      window.addEventListener("resize", onScroll);
+      update();
+    })();
+  </script>
+</body>
+</html>
