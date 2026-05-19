@@ -4,13 +4,11 @@ This is a static personal portfolio. Keep it vanilla: plain HTML, CSS, and JavaS
 
 ## Files
 
-```text
 index.html            page content, project rows, contact links, scroll fade script
 styles.css            design tokens, typography, layout, responsive styles
 shader-bg.js          <shader-bg> WebGL background and fallback tiers
 images/*.svg          project cover art
 README.md             user-facing project notes
-```
 
 There is no build step, package manager, linter, test suite, or CI.
 

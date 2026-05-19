@@ -1,6 +1,6 @@
 # Portafolio
 
-A small static personal portfolio template for side projects.
+A small static personal portfolio for side projects.
 
 ## Current Shape
 
@@ -10,10 +10,6 @@ A small static personal portfolio template for side projects.
 - `images/*.svg` contains the three project cover images.
 
 There is no framework, bundler, package manager, build step, test suite, or CI.
-
-## Personalize
-
-Search for `YOUR_HANDLE` in `index.html` and replace it with your name or handle. Then update the nearby `TODO` comments for links, email, timezone/location, and project URLs.
 
 ## Run
 
@@ -33,9 +29,6 @@ Force a background tier with:
 - `?bg=static`
 - `?bg=solid`
 
-## Deploy
-
-Deploy the repo root to GitHub Pages, Vercel, or any static host.
 
 ## License
 

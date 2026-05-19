@@ -1,9 +1,4 @@
-/* ============================================================
-   portfolio — design tokens & base styles
-   ============================================================ */
-
 :root {
-  /* Palette  monochrome dark with neutral warm-paper accent */
   --bg: #08080a;
   --bg-elev: #0e0e11;
   --ink: #ece9e0;
@@ -40,16 +35,6 @@
   --radius-m: 14px;
 }
 
-/* Typography — Spectral italic display, Inter Tight body, JetBrains Mono detail */
-html {
-  --display-family:   var(--serif);
-  --display-weight:   300;
-  --display-style:    italic;
-  --display-tracking: -0.015em;
-  --body-family:      var(--sans);
-  --detail-family:    var(--mono);
-}
-
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 html {
@@ -58,7 +43,7 @@ html {
   scroll-padding-top: var(--nav-offset);
 }
 body {
-  font-family: var(--body-family);
+  font-family: var(--sans);
   font-size: var(--fs-body);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
@@ -71,9 +56,36 @@ body {
 
 a { color: inherit; text-decoration: none; }
 
-/* ------------------------------------------------------------
-   Layout
-   ------------------------------------------------------------ */
+.hero h1,
+.section-head h2,
+.project h3,
+.about .lede,
+.footer h4 {
+  font-family: var(--serif);
+  font-weight: 300;
+  font-style: italic;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  margin: 0;
+}
+
+.hero .eyebrow,
+.section-head .index,
+.project .thumb .badge,
+.project .tags,
+.kv,
+.oss-row,
+.footer {
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+}
+
+.hero h1 .accent,
+.section-head h2 em,
+.about .lede em,
+.footer h4 em {
+  color: var(--accent);
+}
 
 .shell {
   position: relative;
@@ -83,7 +95,6 @@ a { color: inherit; text-decoration: none; }
   padding: 0 var(--pad-x);
 }
 
-/* Top nav */
 .nav {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -92,7 +103,7 @@ a { color: inherit; text-decoration: none; }
   justify-content: space-between;
   align-items: center;
   padding: 18px var(--pad-x);
-  font-family: var(--detail-family);
+  font-family: var(--mono);
   font-size: var(--fs-small);
   letter-spacing: 0.02em;
   color: var(--ink);
@@ -134,10 +145,6 @@ a { color: inherit; text-decoration: none; }
   }
 }
 
-/* ------------------------------------------------------------
-   Hero
-   ------------------------------------------------------------ */
-
 .hero {
   min-height: 100vh;
   display: flex;
@@ -149,8 +156,6 @@ a { color: inherit; text-decoration: none; }
 }
 
 .hero .eyebrow {
-  font-family: var(--detail-family);
-  font-size: var(--fs-small);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -168,23 +173,11 @@ a { color: inherit; text-decoration: none; }
 }
 
 .hero h1 {
-  font-family: var(--display-family);
-  font-weight: var(--display-weight);
-  font-style: var(--display-style);
   font-size: var(--fs-display);
-  letter-spacing: var(--display-tracking);
   line-height: 0.92;
-  margin: 0;
-  color: var(--ink);
 }
-.hero h1 .accent {
-  font-style: italic;
-  color: var(--accent);
-}
-
 .hero .tagline {
   margin-top: var(--gap-l);
-  max-width: 640px;
   font-size: clamp(18px, 1.6vw, 22px);
   color: var(--ink-dim);
   line-height: 1.45;
@@ -194,7 +187,6 @@ a { color: inherit; text-decoration: none; }
   margin-top: var(--gap-xl);
   display: flex;
   gap: var(--gap-l);
-  font-family: var(--detail-family);
   font-size: var(--fs-small);
   color: var(--ink-faint);
 }
@@ -206,13 +198,12 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: 4px;
 }
 
-/* Scroll cue */
 .scroll-cue {
   position: absolute;
   bottom: var(--gap-l);
   left: 50%;
   transform: translateX(-50%);
-  font-family: var(--detail-family);
+  font-family: var(--mono);
   font-size: var(--fs-micro);
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -232,10 +223,6 @@ a { color: inherit; text-decoration: none; }
   0%, 100% { transform: scaleY(1); transform-origin: top; opacity: 1; }
   50% { transform: scaleY(0.4); transform-origin: top; opacity: 0.4; }
 }
-
-/* ------------------------------------------------------------
-   Section header
-   ------------------------------------------------------------ */
 
 .section {
   padding: var(--gap-xxl) 0;
@@ -257,31 +244,14 @@ a { color: inherit; text-decoration: none; }
   .section-head { grid-template-columns: 1fr; }
 }
 .section-head .index {
-  font-family: var(--detail-family);
-  font-size: var(--fs-small);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--ink-faint);
 }
 .section-head h2 {
-  font-family: var(--display-family);
-  font-weight: var(--display-weight);
-  font-style: var(--display-style);
   font-size: var(--fs-h2);
-  letter-spacing: var(--display-tracking);
   line-height: 1.0;
-  margin: 0;
-  color: var(--ink);
 }
-.section-head h2 em {
-  color: var(--accent);
-  font-style: italic;
-}
-
-/* ------------------------------------------------------------
-   Project grid
-   ------------------------------------------------------------ */
-
 .projects {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -301,11 +271,9 @@ a { color: inherit; text-decoration: none; }
   background: var(--bg-elev);
   border: 1px solid var(--rule);
   border-radius: var(--radius-m);
-  overflow: hidden;
-  text-decoration: none;
-  color: inherit;
-  transition: border-color .35s ease, transform .5s cubic-bezier(.2,.8,.2,1);
   isolation: isolate;
+  overflow: hidden;
+  transition: border-color .35s ease;
 }
 .project:hover {
   border-color: var(--rule-strong);
@@ -342,7 +310,6 @@ a { color: inherit; text-decoration: none; }
 .project .thumb .badge {
   position: absolute;
   top: 16px; left: 16px;
-  font-family: var(--detail-family);
   font-size: var(--fs-micro);
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -369,17 +336,11 @@ a { color: inherit; text-decoration: none; }
   gap: var(--gap-m);
 }
 .project h3 {
-  font-family: var(--display-family);
-  font-weight: var(--display-weight);
-  font-style: var(--display-style);
   font-size: clamp(24px, 2.4vw, 32px);
-  letter-spacing: var(--display-tracking);
   line-height: 1.05;
-  margin: 0;
-  color: var(--ink);
 }
 .project .num {
-  font-family: var(--detail-family);
+  font-family: var(--mono);
   font-size: var(--fs-small);
   color: var(--ink-faint);
   letter-spacing: 0.1em;
@@ -397,7 +358,6 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  font-family: var(--detail-family);
   font-size: var(--fs-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -428,10 +388,6 @@ a { color: inherit; text-decoration: none; }
   color: var(--accent-ink);
 }
 
-/* ------------------------------------------------------------
-   About
-   ------------------------------------------------------------ */
-
 .about {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
@@ -442,16 +398,9 @@ a { color: inherit; text-decoration: none; }
   .about { grid-template-columns: 1fr; }
 }
 .about .lede {
-  font-family: var(--display-family);
-  font-weight: var(--display-weight);
-  font-style: var(--display-style);
   font-size: clamp(24px, 2.6vw, 36px);
-  letter-spacing: var(--display-tracking);
   line-height: 1.2;
-  color: var(--ink);
-  margin: 0;
 }
-.about .lede em { color: var(--accent); }
 .about .body { color: var(--ink-dim); }
 .about .body p { margin: 0 0 1em; line-height: 1.7; max-width: 60ch; }
 
@@ -460,17 +409,11 @@ a { color: inherit; text-decoration: none; }
   display: grid;
   grid-template-columns: 100px 1fr;
   gap: 10px var(--gap-m);
-  font-family: var(--detail-family);
-  font-size: var(--fs-small);
   border-top: 1px solid var(--rule);
   padding-top: var(--gap-m);
 }
 .kv dt { color: var(--ink-faint); letter-spacing: 0.12em; text-transform: uppercase; font-size: var(--fs-micro); padding-top: 2px; }
 .kv dd { margin: 0; color: var(--ink); }
-
-/* ------------------------------------------------------------
-   Open source contributions list
-   ------------------------------------------------------------ */
 
 .oss-list { display: flex; flex-direction: column; }
 .oss-row {
@@ -480,11 +423,7 @@ a { color: inherit; text-decoration: none; }
   gap: var(--gap-m);
   padding: 20px 0;
   border-bottom: 1px solid var(--rule);
-  font-family: var(--detail-family);
-  font-size: var(--fs-small);
   position: relative;
-  text-decoration: none;
-  color: inherit;
   transition: padding .35s cubic-bezier(.2,.8,.2,1);
 }
 .oss-row:hover {
@@ -500,7 +439,7 @@ a { color: inherit; text-decoration: none; }
 }
 .oss-row:hover::before { width: 6px; }
 .oss-row .num { color: var(--ink-faint); }
-.oss-row .repo { color: var(--ink); font-family: var(--body-family); font-size: 17px; letter-spacing: -0.005em; }
+.oss-row .repo { color: var(--ink); font-family: var(--sans); font-size: 17px; letter-spacing: -0.005em; }
 .oss-row .repo .dim { color: var(--ink-faint); }
 .oss-row .blurb { color: var(--ink-dim); }
 .oss-row .arrow-x { color: var(--ink-faint); transition: transform .35s ease, color .25s; }
@@ -510,10 +449,6 @@ a { color: inherit; text-decoration: none; }
   .oss-row .num, .oss-row .blurb { display: none; }
 }
 
-/* ------------------------------------------------------------
-   Footer
-   ------------------------------------------------------------ */
-
 .footer {
   margin-top: var(--gap-xxl);
   padding: var(--gap-xl) 0 var(--gap-l);
@@ -521,50 +456,37 @@ a { color: inherit; text-decoration: none; }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--gap-l);
-  font-family: var(--detail-family);
-  font-size: var(--fs-small);
   color: var(--ink-faint);
   scroll-margin-top: var(--nav-offset);
 }
 .footer h4 {
-  font-family: var(--display-family);
-  font-weight: var(--display-weight);
-  font-style: var(--display-style);
   font-size: clamp(36px, 6vw, 96px);
-  letter-spacing: var(--display-tracking);
   line-height: 0.95;
-  color: var(--ink);
   margin: 0 0 var(--gap-m);
   grid-column: 1 / -1;
 }
-.footer h4 em { color: var(--accent); font-style: italic; }
 .footer .col a { display: block; padding: 6px 0; color: var(--ink); transition: color .2s; }
 .footer .col a:hover { color: var(--accent); }
 .footer .col .label { color: var(--ink-faint); margin-bottom: 8px; letter-spacing: 0.18em; text-transform: uppercase; font-size: var(--fs-micro); }
 .footer .copy { grid-column: 1 / -1; padding-top: var(--gap-l); border-top: 1px solid var(--rule); display: flex; justify-content: space-between; }
 
-/* ------------------------------------------------------------
-   Background canvas
-   ------------------------------------------------------------ */
-
-/* Solid page backdrop behind everything below the hero */
-.page-bg {
+.page-bg,
+shader-bg,
+.grain {
   position: fixed;
   inset: 0;
-  z-index: 0;
   pointer-events: none;
+}
+
+.page-bg {
+  z-index: 0;
   background: var(--bg);
 }
 
-/* Animated shader: 100vh tall, pinned to top, fades out as you scroll past hero */
 shader-bg {
-  position: fixed;
-  top: 0; left: 0; right: 0;
   height: 100vh;
   z-index: 0;
   display: block;
-  pointer-events: none;
-  /* fade computed from --scroll-fade (0..1) set by JS */
   opacity: calc(1 - var(--scroll-fade, 0));
   transition: opacity .15s linear;
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 70%, rgba(0,0,0,0.6) 88%, rgba(0,0,0,0) 100%);
@@ -576,7 +498,6 @@ shader-bg canvas {
   display: block;
 }
 
-/* Soft blend strip at the bottom of the hero  eases the shader into the solid bg */
 .bg-blend {
   position: fixed;
   left: 0; right: 0;
@@ -588,18 +509,13 @@ shader-bg canvas {
   opacity: calc(1 - var(--scroll-fade, 0) * 0.5);
 }
 
-/* subtle film grain on top of shader */
 .grain {
-  position: fixed;
-  inset: 0;
   z-index: 1;
-  pointer-events: none;
   opacity: 0.05;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.5'/></svg>");
 }
 
-/* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
