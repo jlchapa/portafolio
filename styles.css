@@ -10,9 +10,9 @@
   --accent-ink: #fff;
 
   /* Type */
-  --serif: "Spectral", Georgia, serif;
-  --sans:  "Inter Tight", system-ui, -apple-system, sans-serif;
-  --mono:  "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --serif: serif;
+  --sans:  system-ui, -apple-system, sans-serif;
+  --mono:  ui-monospace, "SF Mono", Menlo, monospace;
 
   --fs-display: clamp(56px, 9.5vw, 148px);
   --fs-h2: clamp(28px, 3.4vw, 44px);
