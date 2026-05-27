@@ -34,6 +34,7 @@
       this._tier  = detectTier();
       this._accent  = [0.227, 0.478, 0.996]; // #3a7afe
       this._accent2 = [0.973, 0.882, 0.471]; // #f8e178
+      this._accent3 = [0.99, 0.19, 0.99]; // rgb(0, 255, 21)
       this._dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     }
 
@@ -129,7 +130,7 @@
       this.style.background = [
         `radial-gradient(ellipse 70% 60% at 22% 30%, ${rgbaFromVec(this._accent, 0.50)} 0%, transparent 60%)`,
         `radial-gradient(ellipse 65% 55% at 78% 72%, ${rgbaFromVec(this._accent2, 0.45)} 0%, transparent 65%)`,
-        `radial-gradient(ellipse 55% 45% at 60% 25%, ${rgbaFromVec(this._accent2, 0.16)} 0%, transparent 70%)`,
+        `radial-gradient(ellipse 55% 45% at 60% 25%, ${rgbaFromVec(this._accent3, 0.16)} 0%, transparent 70%)`,
         `linear-gradient(to bottom, #0c0c10 0%, #08080a 100%)`,
       ].join(", ");
     }
@@ -181,6 +182,7 @@
           uniform float u_hover;
           uniform vec3  u_accent;
           uniform vec3  u_accent2;
+          uniform vec3  u_accent3;
 
           float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
           float vnoise(vec2 p){
@@ -207,8 +209,8 @@
             float dist = length(d);
             p -= d * (exp(-dist * 2.8) * u_hover * 0.54);
 
-            p *= 2.0;                    // scale
-            float t = u_t * 0.05;        // speed
+            p *= 3.0;                    // scale
+            float t = u_t * 0.1 + 25.0;        // speed
 
             // Plasma — layer A
             vec3 col = vec3(0.03, 0.03, 0.04);
@@ -226,7 +228,16 @@
             float nB1   = fbm(q2 * 1.3 + tb * 0.6);
             float nB2   = fbm(q2 * 0.55 - tb * 0.5 + 5.0);
             float maskB = smoothstep(0.35, 0.9, nB1) * smoothstep(0.3, 0.9, nB2);
-            col = mix(col, u_accent2, maskB * 0.9);
+            col = mix(col, u_accent2, maskB * 0.5);
+
+            // Plasma — layer B (phase 0.9)
+            vec2  q3 = p * 0.65 + vec2(3.5, -2.1);
+            float tc = t * 0.95 + 0.6;
+            q3 += 2.0 * vec2(fbm(q3 + tc), fbm(q3 - tc + 1.3));
+            float nC1   = fbm(q3 * 1.3 + tc * 0.6);
+            float nC2   = fbm(q3 * 0.55 - tc * 0.5 + 5.0);
+            float maskC = smoothstep(0.35, 0.9, nC1) * smoothstep(0.3, 0.9, nC2);
+            col = mix(col, u_accent3, maskC * 0.59);
 
             // cursor glow + vignette + dither
             col += u_accent * exp(-dist * 1.8) * u_hover * 0.35;
@@ -256,6 +267,7 @@
           u_hover:  gl.getUniformLocation(prog, "u_hover"),
           u_accent: gl.getUniformLocation(prog, "u_accent"),
           u_accent2:gl.getUniformLocation(prog, "u_accent2"),
+          u_accent3:gl.getUniformLocation(prog, "u_accent3"),
         };
         gl.useProgram(prog);
         return gl;
@@ -272,6 +284,7 @@
       gl.uniform1f(this._uniforms.u_hover,  this._mouse.hover);
       gl.uniform3f(this._uniforms.u_accent,  this._accent[0],  this._accent[1],  this._accent[2]);
       gl.uniform3f(this._uniforms.u_accent2, this._accent2[0], this._accent2[1], this._accent2[2]);
+      gl.uniform3f(this._uniforms.u_accent3, this._accent3[0], this._accent3[1], this._accent3[2]);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
   }
