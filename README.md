@@ -1,6 +1,6 @@
 # Portafolio
 
-A small static personal portfolio for side projects.
+A small static personal portfolio for side projects built with native web technologies.
 
 ## Current Shape
 
@@ -28,8 +28,3 @@ Force a background tier with:
 - `?bg=animated`
 - `?bg=static`
 - `?bg=solid`
-
-
-## License
-
-MIT.

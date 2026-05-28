@@ -14,8 +14,7 @@ There is no build step, package manager, linter, test suite, or CI.
 
 ## Editing Rules
 
-- Keep placeholders as `YOUR_HANDLE` and `you@example.com` unless the user explicitly provides replacements.
-- Do not add personal names, real emails, handles, profile URLs, analytics, or trackers.
+- Do not add analytics, or trackers.
 - Do not introduce React, Tailwind, npm, TypeScript, ES modules, or a bundler.
 - Prefer existing CSS tokens in `:root` before adding new colors, spacing, or typography values.
 - Keep scripts loaded with plain `<script src="..."></script>`.

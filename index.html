@@ -20,15 +20,15 @@
 
   <!-- Top nav -->
   <header class="nav">
-    <div class="brand">
-      <span class="dot"></span>
+    <div class="nav-brand">
+      <span class="nav-dot"></span>
       <span><a href="https://www.github.com/jlchapa" target="_blank" rel="noreferrer">jlchapa</a></span>
     </div>
-    <nav class="links">
-      <a href="#work">Projects</a>
-      <a href="#about">About</a>
-      <a href="#oss">Open source</a>
-      <a href="#contact">Contact</a>
+    <nav class="nav-links">
+      <a class="nav-link" href="#work">Projects</a>
+      <a class="nav-link" href="#about">About</a>
+      <a class="nav-link" href="#oss">Open source</a>
+      <a class="nav-link" href="#contact">Contact</a>
     </nav>
   </header>
 
@@ -36,17 +36,17 @@
 
     <!-- HERO -->
     <section class="hero">
-      <div class="eyebrow">Personal index 2026</div>
-      <h1>
+      <div class="hero-eyebrow">Personal index 2026</div>
+      <h1 class="hero-title">
         Vibe coded <span class="accent">with AI</span>
       </h1>
-      <p class="tagline">
+      <p class="hero-tagline">
         I built these small apps to solve some of my own problems and to stay in the loop of AI development during my sabbatical.
       </p>
-      <div class="meta">
-        <div><b>03</b><span>Active projects</span></div>
-        <div><b>Local-first</b><span>No ads, no trackers, processing on device</span></div>
-        <div><b>github.com/jlchapa</b><span>Source &amp; releases</span></div>
+      <div class="hero-meta">
+        <div><b class="hero-meta-value">03</b><span>Active projects</span></div>
+        <div><b class="hero-meta-value">Local-first</b><span>No ads, no trackers, processing on device</span></div>
+        <div><b class="hero-meta-value">github.com/jlchapa</b><span>Source &amp; releases</span></div>
       </div>
       <div class="scroll-cue">Scroll</div>
     </section>
@@ -54,74 +54,74 @@
     <!-- WORK -->
     <section class="section" id="work">
       <header class="section-head">
-        <div class="index">01 — Selected work</div>
-        <h2>A few experiments<br/>that escaped the <em>tab graveyard.</em></h2>
+        <div class="section-index">01 — Selected work</div>
+        <h2 class="section-title">A few experiments<br/>that <em class="accent">made the cut.</em></h2>
       </header>
 
       <div class="projects">
 
-        <a class="project" href="#" target="_blank" rel="noreferrer">
-          <div class="thumb">
-            <span class="badge">Finance</span>
-            <img src="images/investing.svg" alt="Investing project cover" />
+        <a class="project project--featured" href="#" target="_blank" rel="noreferrer">
+          <div class="project-thumb">
+            <span class="project-badge">Finance</span>
+            <img class="project-img" src="images/investing.svg" alt="Investing project cover" />
           </div>
-          <span class="arrow">
+          <span class="project-arrow">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6">
               <path d="M3 11 L11 3"/><path d="M5 3 L11 3 L11 9"/>
             </svg>
           </span>
-          <div class="body">
-            <div class="row">
-              <h3>Investing</h3>
-              <span class="num">/01</span>
+          <div class="project-body">
+            <div class="project-row">
+              <h3 class="project-title">Investing</h3>
+              <span class="project-num">/01</span>
             </div>
-            <p>A small reasoning tool that helps you decide when you can actually fire</p>
-            <div class="tags">
-              <span>Web</span><span>Finance</span><span>Local data</span>
+            <p class="project-desc">A small reasoning tool that helps you decide when you can actually FIRE</p>
+            <div class="project-tags">
+              <span class="project-tag">Web</span><span class="project-tag">Finance</span><span class="project-tag">Local data</span>
             </div>
           </div>
         </a>
 
         <a class="project" href="#" target="_blank" rel="noreferrer">
-          <div class="thumb">
-            <span class="badge">App · iOS</span>
-            <img src="images/laundry-app.svg" alt="LaundryApp project cover" />
+          <div class="project-thumb">
+            <span class="project-badge">App · iOS</span>
+            <img class="project-img" src="images/laundry-app.svg" alt="LaundryApp project cover" />
           </div>
-          <span class="arrow">
+          <span class="project-arrow">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6">
               <path d="M3 11 L11 3"/><path d="M5 3 L11 3 L11 9"/>
             </svg>
           </span>
-          <div class="body">
-            <div class="row">
-              <h3>LaundryApp</h3>
-              <span class="num">/02</span>
+          <div class="project-body">
+            <div class="project-row">
+              <h3 class="project-title">LaundryApp</h3>
+              <span class="project-num">/02</span>
             </div>
-            <p>Track laundry business day to day activities.</p>
-            <div class="tags">
-              <span>Sales</span><span>Client notifications</span>
+            <p class="project-desc">Track laundry business day to day activities.</p>
+            <div class="project-tags">
+              <span class="project-tag">Sales</span><span class="project-tag">Client notifications</span>
             </div>
           </div>
         </a>
 
         <a class="project" href="https://jlchapa.github.io/gym-progress/" target="_blank" rel="noreferrer">
-          <div class="thumb">
-            <span class="badge">Local AI</span>
-            <img src="images/gymapp.png" alt="GymProgress project cover" />
+          <div class="project-thumb">
+            <span class="project-badge">Local AI</span>
+            <img class="project-img" src="images/gymapp.png" alt="GymProgress project cover" />
           </div>
-          <span class="arrow">
+          <span class="project-arrow">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6">
               <path d="M3 11 L11 3"/><path d="M5 3 L11 3 L11 9"/>
             </svg>
           </span>
-          <div class="body">
-            <div class="row">
-              <h3>GymProgress</h3>
-              <span class="num">/03</span>
+          <div class="project-body">
+            <div class="project-row">
+              <h3 class="project-title">GymProgress</h3>
+              <span class="project-num">/03</span>
             </div>
-            <p>A way to track gym progress on device. Snap a mirror photo every week then a small  model reads the silhouette, posture, and composition trends. Photos never leave your device.</p>
-            <div class="tags">
-              <span>TFLite</span><span>On-device ML</span><span>Health</span>
+            <p class="project-desc">A way to track gym progress on device. Snap a mirror photo every week then a small  model reads the silhouette, posture, and composition trends. Photos never leave your device.</p>
+            <div class="project-tags">
+              <span class="project-tag">TFLite</span><span class="project-tag">On-device ML</span><span class="project-tag">Health</span>
             </div>
           </div>
         </a>
@@ -132,18 +132,19 @@
     <!-- ABOUT -->
     <section class="section" id="about">
       <header class="section-head">
-        <div class="index">02 — About</div>
-        <h2>I'm interested in software that <em>respects your data</em>, uses free technologies and runs locally.</h2>
+        <div class="section-index">02 — About</div>
+        <h2 class="section-title">Software that is simple and useful.</h2>
       </header>
       <div class="about">
-        <p class="lede">
-          I build small, opinionated tools for myself, then share them online in case they are useful for someone else.
+        <p class="about-lede">
+          I build small, opinionated tools for myself, then share them online in case they are useful for someone else.<br/><br/>
+          I'm interested in software that <em class="accent">respects our data</em>, uses free technologies and runs locally.
         </p>
-        <div class="body">
+        <div class="about-body">
           <dl class="kv">
-            <dt>Stack</dt><dd>Vanilla JS, HTML, CSS, TS</dd>
-            <dt>Tools</dt><dd>Codex, Claude, the terminal</dd>
-            <dt>Ethos</dt><dd>Local-first · No ads · Minimal dependencies</dd>
+            <dt class="kv-label">Stack</dt><dd class="kv-value">Vanilla JS, HTML, CSS, TS</dd>
+            <dt class="kv-label">Tools</dt><dd class="kv-value">Codex, Claude, the terminal</dd>
+            <dt class="kv-label">Ethos</dt><dd class="kv-value">Local-first · No ads · Minimal dependencies</dd>
           </dl>
         </div>
       </div>
@@ -152,56 +153,45 @@
     <!-- OPEN SOURCE -->
     <section class="section" id="oss">
       <header class="section-head">
-        <div class="index">03 — Open source</div>
-        <h2>Patches, forks, <em>and the occasional issue</em> nobody asked for.</h2>
+        <div class="section-index">03 — Open source</div>
+        <h2 class="section-title">Tools for everyone</h2>
       </header>
       <div class="oss-list">
 
         <a class="oss-row" href="#" target="_blank" rel="noreferrer">
-          <span class="num">01</span>
-          <span class="repo"><span class="dim">github.com/</span>jlchapa/repo-1</span>
-          <span class="blurb">Self-hosted retirement calculator</span>
-          <span class="arrow-x">→</span>
+          <span class="oss-num">01</span>
+          <span class="oss-repo"><span class="oss-dim">github.com/</span>jlchapa/repo</span>
+          <span class="oss-blurb">Self-hosted retirement calculator</span>
+          <span class="oss-arrow">→</span>
+        </a>
+        <a class="oss-row" href="https://www.github.com/jlchapa/gym-progress" target="_blank" rel="noreferrer">
+          <span class="oss-num">03</span>
+          <span class="oss-repo"><span class="oss-dim">github.com/</span>jlchapa/gym-progress</span>
+          <span class="oss-blurb">On-device progress tracking from photos</span>
+          <span class="oss-arrow">→</span>
         </a>
         <a class="oss-row" href="#" target="_blank" rel="noreferrer">
-          <span class="num">02</span>
-          <span class="repo"><span class="dim">github.com/</span>jlchapa/repo-2</span>
-          <span class="blurb">Household laundry tracker</span>
-          <span class="arrow-x">→</span>
-        </a>
-        <a class="oss-row" href="#" target="_blank" rel="noreferrer">
-          <span class="num">03</span>
-          <span class="repo"><span class="dim">github.com/</span>jlchapa/gym-progress</span>
-          <span class="blurb">On-device progress tracking from photos</span>
-          <span class="arrow-x">→</span>
-        </a>
-        <a class="oss-row" href="#" target="_blank" rel="noreferrer">
-          <span class="num">04</span>
-          <span class="repo"><span class="dim">github.com/</span>jlchapa</span>
-          <span class="blurb">My terminal, lightly opinionated</span>
-          <span class="arrow-x">→</span>
-        </a>
-        <a class="oss-row" href="#" target="_blank" rel="noreferrer">
-          <span class="num">05</span>
-          <span class="repo"><span class="dim">github.com/</span>jlchapa/portafolio</span>
-          <span class="blurb">This lil portafolio</span>
-          <span class="arrow-x">→</span>
+          <span class="oss-num">05</span>
+          <span class="oss-repo"><span class="oss-dim">github.com/</span>jlchapa/portafolio</span>
+          <span class="oss-blurb">This lil portafolio</span>
+          <span class="oss-arrow">→</span>
         </a>
       </div>
     </section>
 
     <!-- FOOTER -->
     <footer class="footer" id="contact">
-      <h4>Say hi</h4>
-      <div class="col">
-        <div class="label">Around the web</div>
-        <a href="https://www.github.com/jlchapa" target="_blank" rel="noreferrer">github.com/jlchapa ↗</a>
-        <a href="https://www.linkedin.com/in/jllc/" target="_blank" rel="noreferrer">linkedin.com/in/jllc ↗</a>
-        <a href="https://medium.com/@blackpolygon" target="_blank" rel="noreferrer">medium.com/@blackpolygon ↗</a>
-        <a href="#" target="_blank" rel="noreferrer">x.com/joselea ↗</a>
+      <h4 class="footer-title">Say hi</h4>
+      <div>
+        <div class="footer-label">Around the web</div>
+        <a class="footer-link" href="https://www.github.com/jlchapa" target="_blank" rel="noreferrer">github.com/jlchapa ↗</a>
+        <a class="footer-link" href="https://www.linkedin.com/in/jllc/" target="_blank" rel="noreferrer">linkedin.com/in/jllc ↗</a>
+        <a class="footer-link" href="https://medium.com/@jllc" target="_blank" rel="noreferrer">medium.com/@jllc ↗</a>
+        <a class="footer-link" href="https://medium.com/@blackpolygon" target="_blank" rel="noreferrer">medium.com/@blackpolygon ↗</a>
+        <a class="footer-link" href="https://x.com/jose_luisleal" target="_blank" rel="noreferrer">x.com/jose_luisleal ↗</a>
       </div>
-      <div class="copy">
-        <span>© jlchapa — 2026</span>
+      <div class="footer-copy">
+        <span>© 2026</span>
         <span>Made with <3 · Vibe coded with AI</span>
       </div>
     </footer>
