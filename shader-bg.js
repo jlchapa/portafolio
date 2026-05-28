@@ -35,7 +35,8 @@
       this._accent  = [0.227, 0.478, 0.996]; // #3a7afe
       this._accent2 = [0.973, 0.882, 0.471]; // #f8e178
       this._accent3 = [0.99, 0.19, 0.99]; // rgb(0, 255, 21)
-      this._dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      this._isTouch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+      this._dpr = Math.min(window.devicePixelRatio || 1, this._isTouch ? 2 : 1.5);
     }
 
     connectedCallback() {
@@ -184,16 +185,20 @@
           uniform vec3  u_accent2;
           uniform vec3  u_accent3;
 
+          mat2 rot(float a){
+            float s=sin(a),c=cos(a);
+            return mat2(c,-s,s,c);
+          }
           float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
           float vnoise(vec2 p){
             vec2 i=floor(p),f=fract(p);
             float a=hash(i),b=hash(i+vec2(1,0)),c=hash(i+vec2(0,1)),d=hash(i+vec2(1,1));
-            vec2 u=f*f*(3.0-2.0*f);
+            vec2 u=f*f*f*(f*(f*6.0-15.0)+10.0);
             return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
           }
           float fbm(vec2 p){
             float v=0.0,a=0.5;
-            for(int i=0;i<5;i++){v+=a*vnoise(p);p*=2.02;a*=0.5;}
+            for(int i=0;i<5;i++){v+=a*vnoise(p);p=rot(0.55)*p*2.03+13.17;a*=0.5;}
             return v;
           }
 
@@ -209,7 +214,8 @@
             float dist = length(d);
             p -= d * (exp(-dist * 2.8) * u_hover * 0.54);
 
-            p *= 3.0;                    // scale
+            p = rot(0.18) * p;
+            p *= 2.35;                   // scale
             float t = u_t * 0.1 + 25.0;        // speed
 
             // Plasma — layer A
@@ -222,7 +228,7 @@
             col = mix(col, u_accent, maskA * 0.9);
 
             // Plasma — layer B (phase 0.5)
-            vec2  q2 = p * 0.55 + vec2(3.7, -2.1);
+            vec2  q2 = rot(-0.42) * p * 0.55 + vec2(3.7, -2.1);
             float tb = t * 0.85 + 0.5;
             q2 += 2.0 * vec2(fbm(q2 + tb), fbm(q2 - tb + 1.3));
             float nB1   = fbm(q2 * 1.3 + tb * 0.6);
@@ -231,7 +237,7 @@
             col = mix(col, u_accent2, maskB * 0.5);
 
             // Plasma — layer B (phase 0.9)
-            vec2  q3 = p * 0.65 + vec2(3.5, -2.1);
+            vec2  q3 = rot(0.73) * p * 0.65 + vec2(3.5, -2.1);
             float tc = t * 0.95 + 0.6;
             q3 += 2.0 * vec2(fbm(q3 + tc), fbm(q3 - tc + 1.3));
             float nC1   = fbm(q3 * 1.3 + tc * 0.6);
