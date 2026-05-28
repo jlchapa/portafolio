@@ -190,15 +190,27 @@
             return mat2(c,-s,s,c);
           }
           float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
-          float vnoise(vec2 p){
+          vec2 grad(vec2 p){
+            float a=hash(p)*6.28318530718;
+            return vec2(cos(a),sin(a));
+          }
+          float gnoise(vec2 p){
             vec2 i=floor(p),f=fract(p);
-            float a=hash(i),b=hash(i+vec2(1,0)),c=hash(i+vec2(0,1)),d=hash(i+vec2(1,1));
             vec2 u=f*f*f*(f*(f*6.0-15.0)+10.0);
-            return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+            float a=dot(grad(i+vec2(0.0,0.0)),f-vec2(0.0,0.0));
+            float b=dot(grad(i+vec2(1.0,0.0)),f-vec2(1.0,0.0));
+            float c=dot(grad(i+vec2(0.0,1.0)),f-vec2(0.0,1.0));
+            float d=dot(grad(i+vec2(1.0,1.0)),f-vec2(1.0,1.0));
+            return mix(mix(a,b,u.x),mix(c,d,u.x),u.y)*0.5+0.5;
+          }
+          float domainNoise(vec2 p){
+            vec2 warp=vec2(gnoise(p*0.7+19.1),gnoise(p*0.7-4.7))-0.5;
+            p += warp*0.65;
+            return gnoise(p);
           }
           float fbm(vec2 p){
             float v=0.0,a=0.5;
-            for(int i=0;i<5;i++){v+=a*vnoise(p);p=rot(0.55)*p*2.03+13.17;a*=0.5;}
+            for(int i=0;i<5;i++){v+=a*domainNoise(p);p=rot(0.55)*p*2.03+13.17;a*=0.5;}
             return v;
           }
 
@@ -224,8 +236,7 @@
             q += 2.0 * vec2(fbm(q + t), fbm(q - t + 7.3));
             float nA1   = fbm(q * 1.4 + t * 0.5);
             float nA2   = fbm(q * 0.5 - t * 0.7 + 11.0);
-            float maskA = smoothstep(0.2, 0.85, nA1) * (0.55 + 0.45 * smoothstep(0.55, 0.95, nA2));
-            col = mix(col, u_accent, maskA * 0.9);
+            float maskA = smoothstep(0.12, 0.95, nA1) * (0.55 + 0.45 * smoothstep(0.3, 1.0, nA2));
 
             // Plasma — layer B (phase 0.5)
             vec2  q2 = rot(-0.42) * p * 0.55 + vec2(3.7, -2.1);
@@ -233,8 +244,7 @@
             q2 += 2.0 * vec2(fbm(q2 + tb), fbm(q2 - tb + 1.3));
             float nB1   = fbm(q2 * 1.3 + tb * 0.6);
             float nB2   = fbm(q2 * 0.55 - tb * 0.5 + 5.0);
-            float maskB = smoothstep(0.35, 0.9, nB1) * smoothstep(0.3, 0.9, nB2);
-            col = mix(col, u_accent2, maskB * 0.5);
+            float maskB = smoothstep(0.18, 0.98, nB1) * smoothstep(0.12, 0.95, nB2);
 
             // Plasma — layer B (phase 0.9)
             vec2  q3 = rot(0.73) * p * 0.65 + vec2(3.5, -2.1);
@@ -242,8 +252,12 @@
             q3 += 2.0 * vec2(fbm(q3 + tc), fbm(q3 - tc + 1.3));
             float nC1   = fbm(q3 * 1.3 + tc * 0.6);
             float nC2   = fbm(q3 * 0.55 - tc * 0.5 + 5.0);
-            float maskC = smoothstep(0.35, 0.9, nC1) * smoothstep(0.3, 0.9, nC2);
-            col = mix(col, u_accent3, maskC * 0.59);
+            float maskC = smoothstep(0.2, 0.98, nC1) * smoothstep(0.14, 0.96, nC2);
+
+            vec3 glow = u_accent * maskA * 0.85
+                      + u_accent2 * maskB * 0.42
+                      + u_accent3 * maskC * 0.48;
+            col = mix(col, col + glow, 0.82);
 
             // cursor glow + vignette + dither
             col += u_accent * exp(-dist * 1.8) * u_hover * 0.35;
