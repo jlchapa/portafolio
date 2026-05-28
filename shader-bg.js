@@ -1,18 +1,20 @@
 /* ============================================================
    <shader-bg>  plasma WebGL background — all values hardcoded.
-   URL ?bg=animated|static|solid overrides tier detection.
+   URL ?bg=animated|mobile|static|solid overrides tier detection.
    ============================================================ */
 
 (function () {
 
   function detectTier() {
     const forced = new URLSearchParams(location.search).get("bg");
-    if (forced === "animated" || forced === "static" || forced === "solid") return forced;
+    if (forced === "animated" || forced === "mobile" || forced === "static" || forced === "solid") return forced;
     if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return "static";
     if (navigator.connection && navigator.connection.saveData) return "solid";
     const mem   = navigator.deviceMemory       || 4;
     const cores = navigator.hardwareConcurrency || 4;
     if (mem <= 1 || cores <= 2) return "solid";
+    const isTouch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+    if (isTouch && mem <= 2) return "static";
     let gl = null;
     try {
       const c = document.createElement("canvas");
@@ -20,8 +22,7 @@
          || c.getContext("experimental-webgl", { failIfMajorPerformanceCaveat: true });
     } catch (_) {}
     if (!gl) return "static";
-    const isTouch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
-    if (isTouch && mem <= 2) return "static";
+    if (isTouch) return "mobile";
     return "animated";
   }
 
@@ -95,7 +96,7 @@
     }
 
     setTier(t) {
-      if (t !== "animated" && t !== "static" && t !== "solid") return;
+      if (t !== "animated" && t !== "mobile" && t !== "static" && t !== "solid") return;
       if (t === this._tier) return;
       this._teardown();
       this._tier = t; this.dataset.tier = t;
@@ -181,6 +182,7 @@
           uniform float u_t;
           uniform vec2  u_mouse;
           uniform float u_hover;
+          uniform float u_mobile;
           uniform vec3  u_accent;
           uniform vec3  u_accent2;
           uniform vec3  u_accent3;
@@ -229,6 +231,44 @@
             p = rot(0.18) * p;
             p *= 2.35;                   // scale
             float t = u_t * 0.1 + 25.0;        // speed
+
+            if (u_mobile > 0.5) {
+              vec3 col = vec3(0.03, 0.03, 0.04);
+              vec2 flow = rot(-0.24) * p;
+              float mt = u_t * 0.09;
+
+              flow += 0.26 * vec2(
+                sin(flow.y * 1.85 + mt),
+                cos(flow.x * 1.55 - mt * 0.8)
+              );
+
+              float blue = sin(flow.x * 1.65 + sin(flow.y * 1.25 + mt) + mt);
+              blue += 0.55 * cos(length(flow + vec2(0.45, -0.2)) * 2.4 - mt * 1.2);
+              blue += 0.35 * sin((flow.x + flow.y) * 1.1 - mt * 0.7);
+              blue = smoothstep(0.22, 0.94, blue * 0.5 + 0.5);
+
+              vec2 warmFlow = rot(0.62) * (flow + vec2(0.55, -0.35));
+              float yellow = cos(warmFlow.x * 1.25 - mt * 0.7 + sin(warmFlow.y * 1.1));
+              yellow += 0.45 * sin(length(warmFlow - vec2(0.1, 0.35)) * 2.0 + mt);
+              yellow = smoothstep(0.36, 0.98, yellow * 0.5 + 0.5);
+
+              vec2 pinkFlow = rot(-0.86) * (flow + vec2(-0.4, 0.28));
+              float magenta = sin(pinkFlow.y * 1.45 + mt * 0.9 + cos(pinkFlow.x * 1.1));
+              magenta += 0.4 * cos(length(pinkFlow + vec2(-0.25, 0.1)) * 2.25 - mt * 0.6);
+              magenta = smoothstep(0.42, 1.0, magenta * 0.5 + 0.5);
+
+              float haze = smoothstep(1.8, 0.15, length(flow - vec2(-0.15, 0.2)));
+
+              col += u_accent * blue * 0.56;
+              col += u_accent2 * yellow * 0.32;
+              col += u_accent3 * magenta * 0.28;
+              col += u_accent * haze * 0.18;
+              col *= 1.0 - smoothstep(0.85, 1.8, length(p)) * 0.5;
+              col += (hash(gl_FragCoord.xy) - 0.5) / 255.0;
+
+              gl_FragColor = vec4(col, 1.0);
+              return;
+            }
 
             // Plasma — layer A
             vec3 col = vec3(0.03, 0.03, 0.04);
@@ -285,6 +325,7 @@
           u_t:      gl.getUniformLocation(prog, "u_t"),
           u_mouse:  gl.getUniformLocation(prog, "u_mouse"),
           u_hover:  gl.getUniformLocation(prog, "u_hover"),
+          u_mobile: gl.getUniformLocation(prog, "u_mobile"),
           u_accent: gl.getUniformLocation(prog, "u_accent"),
           u_accent2:gl.getUniformLocation(prog, "u_accent2"),
           u_accent3:gl.getUniformLocation(prog, "u_accent3"),
@@ -302,6 +343,7 @@
       gl.uniform1f(this._uniforms.u_t,      this._time);
       gl.uniform2f(this._uniforms.u_mouse,  this._mouse.x,      this._mouse.y);
       gl.uniform1f(this._uniforms.u_hover,  this._mouse.hover);
+      gl.uniform1f(this._uniforms.u_mobile, this._tier === "mobile" ? 1 : 0);
       gl.uniform3f(this._uniforms.u_accent,  this._accent[0],  this._accent[1],  this._accent[2]);
       gl.uniform3f(this._uniforms.u_accent2, this._accent2[0], this._accent2[1], this._accent2[2]);
       gl.uniform3f(this._uniforms.u_accent3, this._accent3[0], this._accent3[1], this._accent3[2]);
