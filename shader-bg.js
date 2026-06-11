@@ -31,13 +31,17 @@
       super();
       this._mouse = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, hover: 0, thover: 0 };
       this._time  = 0;
+      this._last  = null;
+      this._shown = false;
       this._raf   = null;
       this._tier  = detectTier();
       this._accent  = [0.227, 0.478, 0.996]; // #3a7afe
       this._accent2 = [0.973, 0.882, 0.471]; // #f8e178
       this._accent3 = [0.99, 0.19, 0.99]; // rgb(0, 255, 21)
       this._isTouch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
-      this._dpr = Math.min(window.devicePixelRatio || 1, this._isTouch ? 2 : 1.5);
+      // Plasma is low-frequency: render below native res so frames stay cheap
+      // and the loop holds a steady rAF cadence (upscale blur is invisible).
+      this._dpr = Math.min(window.devicePixelRatio || 1, this._isTouch ? 1.75 : 1.25);
     }
 
     connectedCallback() {
@@ -57,6 +61,8 @@
 
       // animated
       this.canvas = document.createElement("canvas");
+      this.canvas.style.opacity = "0";
+      this.canvas.style.transition = "opacity 1.1s ease";
       this.appendChild(this.canvas);
       this._gl = this._initGL();
       if (!this._gl) {
@@ -107,6 +113,8 @@
     _teardown() {
       if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }
       if (this.canvas) { this.canvas.remove(); this.canvas = null; }
+      this._last = null;
+      this._shown = false;
       if (this._onResize) {
         window.removeEventListener("resize", this._onResize);
       }
@@ -153,12 +161,25 @@
     _onLeave() { this._mouse.thover = 0.0; }
 
     _loop(t) {
-      this._time = t / 1000;
-      const k = 0.08;
+      const now = t / 1000;
+      // Clamped delta: tab switches and dropped frames advance the plasma by
+      // at most one normal step instead of visibly jumping ahead.
+      let dt = this._last === null ? 1 / 60 : now - this._last;
+      this._last = now;
+      if (dt < 0) dt = 0;
+      if (dt > 0.05) dt = 0.05;
+      this._time += dt;
+      // Frame-rate-independent easing (same feel at 30, 60 or 120 Hz).
+      const k  = 1 - Math.exp(-5.0 * dt);
+      const kh = 1 - Math.exp(-3.6 * dt);
       this._mouse.x     += (this._mouse.tx    - this._mouse.x)     * k;
       this._mouse.y     += (this._mouse.ty    - this._mouse.y)     * k;
-      this._mouse.hover += (this._mouse.thover - this._mouse.hover) * 0.06;
+      this._mouse.hover += (this._mouse.thover - this._mouse.hover) * kh;
       this._renderGL();
+      if (!this._shown) {
+        this._shown = true;
+        this.canvas.style.opacity = "1";
+      }
       this._raf = requestAnimationFrame(this._loop);
     }
 

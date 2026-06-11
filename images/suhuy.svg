@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
+  <rect width="800" height="450" fill="#0a0a0c"/>
+  <rect x="1" y="1" width="798" height="448" fill="none" stroke="#1a1a1e" stroke-width="1"/>
+  <line x1="0" y1="225" x2="800" y2="225" stroke="#15151a" stroke-width="1"/>
+  <line x1="400" y1="0" x2="400" y2="450" stroke="#15151a" stroke-width="1"/>
+
+  <!-- sequence grid -->
+  <g transform="translate(470,105)">
+    <g fill="none" stroke="#2a2a30" stroke-width="1.5">
+      <rect x="0"   y="0"   width="66" height="66" rx="12"/>
+      <rect x="84"  y="0"   width="66" height="66" rx="12"/>
+      <rect x="168" y="0"   width="66" height="66" rx="12"/>
+      <rect x="0"   y="84"  width="66" height="66" rx="12"/>
+      <rect x="168" y="84"  width="66" height="66" rx="12"/>
+      <rect x="0"   y="168" width="66" height="66" rx="12"/>
+      <rect x="84"  y="168" width="66" height="66" rx="12"/>
+    </g>
+    <rect x="84"  y="84"  width="66" height="66" rx="12" fill="#3a7afe" opacity="0.9"/>
+    <rect x="168" y="168" width="66" height="66" rx="12" fill="#f8e178" opacity="0.8"/>
+    <rect x="84"  y="0"   width="66" height="66" rx="12" fill="#fc31fc" opacity="0.45"/>
+  </g>
+
+  <!-- digits + shapes glyphs -->
+  <g font-family="monospace" font-size="15" fill="#3a3a40">
+    <text x="86" y="330">7 4 1 9 2</text>
+    <text x="86" y="356">&#9651; &#9633; &#9675; &#9671;</text>
+  </g>
+
+  <!-- wordmark -->
+  <text x="84" y="190" font-family="serif" font-style="italic" font-weight="300" font-size="72" fill="#ece9e0">Suhuy</text>
+  <text x="86" y="232" font-family="monospace" font-size="13" letter-spacing="3" fill="#5a564f">DAILY BRAIN TRAINING</text>
+</svg>

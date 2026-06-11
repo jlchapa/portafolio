@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
+  <rect width="800" height="450" fill="#0a0a0c"/>
+  <rect x="1" y="1" width="798" height="448" fill="none" stroke="#1a1a1e" stroke-width="1"/>
+  <line x1="0" y1="225" x2="800" y2="225" stroke="#15151a" stroke-width="1"/>
+  <line x1="400" y1="0" x2="400" y2="450" stroke="#15151a" stroke-width="1"/>
+
+  <!-- skyline -->
+  <g transform="translate(450,96)">
+    <g fill="none" stroke="#2a2a30" stroke-width="1.5">
+      <rect x="0"   y="120" width="74" height="148"/>
+      <rect x="92"  y="56"  width="84"  height="212"/>
+      <rect x="194" y="150" width="96"  height="118"/>
+      <path d="M194 150 L242 104 L290 150"/>
+    </g>
+    <!-- lit windows -->
+    <g fill="#3a7afe" opacity="0.9">
+      <rect x="108" y="76"  width="12" height="14"/>
+      <rect x="132" y="76"  width="12" height="14"/>
+      <rect x="108" y="108" width="12" height="14"/>
+      <rect x="16"  y="138" width="11" height="13"/>
+      <rect x="40"  y="170" width="11" height="13"/>
+    </g>
+    <g fill="#f8e178" opacity="0.8">
+      <rect x="156" y="108" width="12" height="14"/>
+      <rect x="132" y="140" width="12" height="14"/>
+      <rect x="16"  y="202" width="11" height="13"/>
+    </g>
+    <rect x="230" y="206" width="24" height="62" fill="#fc31fc" opacity="0.4"/>
+    <line x1="-24" y1="268" x2="314" y2="268" stroke="#2a2a30" stroke-width="1.5"/>
+  </g>
+
+  <!-- index marks -->
+  <g font-family="monospace" font-size="15" fill="#3a3a40">
+    <text x="86" y="330">$ &#183; m&#178; &#183; rooms &#183; location</text>
+  </g>
+
+  <!-- wordmark -->
+  <text x="84" y="190" font-family="serif" font-style="italic" font-weight="300" font-size="72" fill="#ece9e0">Recatalog</text>
+  <text x="86" y="232" font-family="monospace" font-size="13" letter-spacing="3" fill="#5a564f">REAL ESTATE CATALOG</text>
+</svg>
