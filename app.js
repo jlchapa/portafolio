@@ -65,7 +65,7 @@
           '<a href="' + esc(p.repo) + '" target="_blank" rel="noreferrer">Source ↗</a>' +
         "</div>" +
       "</div>";
-    var size = Math.min(52 / (p.title.length * 0.84), 100);
+    var size = Math.min(52 / (p.title.length * 0.61), 100);
     title.innerHTML = '<div class="title" style="font-size:min(' + size.toFixed(2) + 'vw, 10vh)">' + esc(p.title) + "</div>";
     page.classList.toggle("is-about", about);
     aboutToggle.textContent = about ? "Close" : "About";

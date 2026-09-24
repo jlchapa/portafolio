@@ -8,8 +8,8 @@
   --accent: #c8f169;
   --accent-ink: #0a0907;
 
-  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --display: "Archivo", system-ui, sans-serif;
+  --mono: "Courier New", Courier, "Nimbus Mono PS", "Liberation Mono", monospace;
+  --display: Didot, "Bodoni MT", "Noto Serif Display", "URW Palladio L", P052, Sylfaen, serif;
 
   --pad-y: clamp(24px, 5vh, 56px);
   --pad-x: clamp(28px, 5vw, 88px);
@@ -122,8 +122,8 @@ a:focus-visible, button:focus-visible { outline: 1px solid var(--accent); outlin
 .about-lede {
   margin: 0;
   font-family: var(--display);
-  font-stretch: 112%;
-  font-weight: 500;
+  font-stretch: normal;
+  font-weight: 400;
   font-size: clamp(15px, min(1.6vw, 2.8vh), 26px);
   line-height: 1.25;
   letter-spacing: -0.01em;
@@ -157,8 +157,8 @@ a:focus-visible, button:focus-visible { outline: 1px solid var(--accent); outlin
 .title-wrap { overflow: hidden; line-height: 0.82; }
 .title {
   font-family: var(--display);
-  font-stretch: 125%;
-  font-weight: 800;
+  font-stretch: normal;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: -0.03em;
   white-space: nowrap;
