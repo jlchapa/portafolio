@@ -191,6 +191,8 @@ a:focus-visible, button:focus-visible { outline: 1px solid var(--accent); outlin
   .footer-row, .footer-links { flex-wrap: wrap; }
   .main { grid-template-columns: 1fr; }
   .card { height: 56vw; }
+  .page.is-about .card { height: auto; }
+  .page.is-about .about { position: relative; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
