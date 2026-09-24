@@ -4,10 +4,10 @@ This is a static personal portfolio. Keep it vanilla: plain HTML, CSS, and JavaS
 
 ## Files
 
-index.html            page content, project rows, contact links, scroll fade script
+index.html            page shell: header, about copy, footer and contact links
 styles.css            design tokens, typography, layout, responsive styles
-shader-bg.js          <shader-bg> WebGL background and fallback tiers
-images/*.svg          project cover art
+app.js                project data (PROJECTS), slideshow, about toggle, cursor
+images/*.png          project screenshots
 README.md             user-facing project notes
 
 There is no build step, package manager, linter, test suite, or CI.
@@ -23,30 +23,22 @@ There is no build step, package manager, linter, test suite, or CI.
 
 | Task | File |
 | --- | --- |
-| Change copy, links, or sections | `index.html` |
-| Add or edit a project card | `index.html` and optionally `images/*.svg` |
+| Change about copy or contact links | `index.html` |
+| Add or edit a project | `PROJECTS` in `app.js` and `images/*.png` |
 | Adjust layout, colors, type, or breakpoints | `styles.css` |
-| Tune background detection or shader behavior | `shader-bg.js` |
+| Tune slideshow, wheel/keyboard or cursor behavior | `app.js` |
 | Update project instructions | `README.md` or `CLAUDE.md` |
 
-## Background Notes
+## Layout Notes
 
-`<shader-bg>` supports three tiers:
-
-- `animated`: WebGL canvas
-- `static`: CSS gradient fallback
-- `solid`: no shader rendering
-
-`detectTier()` in `shader-bg.js` chooses a tier from URL override, reduced motion, Save-Data, device memory/CPU, WebGL support, and touch-device heuristics. Preserve all three tiers when changing shader code.
-
-The hero fade is driven by the inline scroll script in `index.html`, which updates `--scroll-fade` on `<html>`. The stacking order depends on `.page-bg`, `<shader-bg>`, `.bg-blend`, `.grain`, and `.shell`.
+The page is a single, non-scrolling viewport: header, a three-column `.main` (project list, image card, detail), and a footer with the progress bar and large project title. The mouse wheel and ← → keys switch projects. Below 760px wide the layout stacks into one column and the page scrolls normally (wheel switching is disabled there). The custom cursor is hidden on touch devices.
 
 ## Verification
 
 Use:
 
 ```bash
-node --check shader-bg.js
+node --check app.js
 git diff --check
 ```
 
