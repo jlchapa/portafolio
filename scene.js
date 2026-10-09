@@ -157,7 +157,7 @@
 
     // Vines hanging from the island's edge and the rock spikes
     showVines: true,
-    vineDensity: 0.35,      // 0-1
+    vineDensity: 0.25,      // 0-1
     vineLength: 9,
 
     // Capybara
@@ -481,8 +481,101 @@
       material.customProgramCacheKey = function () { return 'tree' + (withNormals ? 'n' : 'd'); };
     }
 
+    // Night glow: in psychedelic mode, patched materials emit a saturated,
+    // full-brightness version of their own color, so they shine in the dark.
+    // Each material gets its own uniform; updatePsychedelic() sets it to
+    // psychedelic.amount * strength.
+    const nightGlows = new Set();
+    function addNightGlow(material, strength) {
+      const glow = { uniform: { value: 0 }, strength };
+      nightGlows.add(glow);
+      material.addEventListener('dispose', () => nightGlows.delete(glow));
+      const previousPatch = material.onBeforeCompile;
+      const previousKey = material.customProgramCacheKey;
+      material.onBeforeCompile = function (shader, renderer) {
+        previousPatch.call(this, shader, renderer);
+        shader.uniforms.uNightGlow = glow.uniform;
+        shader.fragmentShader = 'uniform float uNightGlow;\n' + shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          {
+            vec3 glowBase = max(diffuseColor.rgb, vec3(0.0));
+            float glowLuma = dot(glowBase, vec3(0.299, 0.587, 0.114));
+            vec3 glowNeon = clamp(mix(vec3(glowLuma), glowBase, 2.2), 0.0, 1.0);
+            glowNeon /= max(max(glowNeon.r, max(glowNeon.g, glowNeon.b)), 0.05);
+            totalEmissiveRadiance += glowNeon * uNightGlow;
+          }`);
+      };
+      material.customProgramCacheKey = function () { return previousKey.call(this) + '|glow'; };
+      return material;
+    }
+
+    // Night palette: in psychedelic mode everything swaps to new bright
+    // colors. nightAmount follows psychedelic.amount (0 day .. 1 night).
+    let nightAmount = 0;
+    const nightColor = hex => new THREE.Color(hex);
+    const NIGHT_PALETTE = {
+      // Japanese maple: magenta, pink and crimson leaves on white bark.
+      leaves: ['#9a1fff', '#ff6fd2', '#ff2fff', '#d63cff'].map(nightColor),
+      leafTip: nightColor('#ffc6ef'),
+      bark: nightColor('#f7f3ff'),
+      root: nightColor('#e9e0ff'),
+      house: {
+        wall: nightColor('#f8af28'), roof: nightColor('#ffc23d'), panel: nightColor('#030735'),
+        frame: nightColor('#ffffff'), window: nightColor('#fff36b'), door: nightColor('#ff8a1f'),
+        deck: nightColor('#abff5c'), pipe: nightColor('#ff4f6e'), tank: nightColor('#3dff9e')
+      },
+      cenoteRock: nightColor('#14e0c4'),
+      cenoteFloor: nightColor('#0a8f9c'),
+      water: nightColor('#5cfff2'),
+      rock: nightColor('#b59cff'),
+      rockTop: nightColor('#d9cbff'),
+      bush: nightColor('#4dff9a'),
+      bushTop: nightColor('#b6ff4d'),
+      vine: nightColor('#c94dff'),
+      vineTip: nightColor('#ff7ae8'),
+      fur: nightColor('#ffb13d'),
+      furDark: nightColor('#ff6f1f')
+    };
+
+    // Instanced meshes registered with their day and night instance colors;
+    // blendNightColors() mixes between them by nightAmount.
+    const nightMeshes = new Set();
+    function registerNightColors(mesh, nightColors) {
+      const day = mesh.instanceColor.array.slice();
+      const night = new Float32Array(day.length);
+      nightColors.forEach((color, i) => color.toArray(night, i * 3));
+      const entry = { mesh, day, night, amount: -1 };
+      nightMeshes.add(entry);
+      const forget = () => nightMeshes.delete(entry);
+      mesh.addEventListener('dispose', forget);
+      mesh.material.addEventListener('dispose', forget);
+      blendNightColors(entry);
+    }
+    function blendNightColors(entry) {
+      if (entry.amount === nightAmount) return;
+      entry.amount = nightAmount;
+      const { day, night } = entry;
+      const out = entry.mesh.instanceColor.array;
+      for (let i = 0; i < out.length; i++) out[i] = day[i] + (night[i] - day[i]) * nightAmount;
+      entry.mesh.instanceColor.needsUpdate = true;
+    }
+
+    // Plain materials (water, capybara fur) blend their color the same way.
+    const nightMaterials = new Set();
+    function registerNightMaterial(material, night, withEmissive) {
+      const entry = { material, day: material.color.clone(), night, withEmissive };
+      nightMaterials.add(entry);
+      material.addEventListener('dispose', () => nightMaterials.delete(entry));
+      blendNightMaterial(entry);
+      return material;
+    }
+    function blendNightMaterial(entry) {
+      entry.material.color.copy(entry.day).lerp(entry.night, nightAmount);
+      if (entry.withEmissive) entry.material.emissive.copy(entry.material.color);
+    }
+
     const treeMaterial = new THREE.MeshLambertMaterial();
     applyBoneSkinning(treeMaterial, true);
+    addNightGlow(treeMaterial, 0.5);
     const treeDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     applyBoneSkinning(treeDepthMaterial, false);
 
@@ -503,9 +596,23 @@
       vein: new THREE.Color()
     };
 
-    // Writes the final color of a voxel into `out` and returns it.
+    // Writes the final color of a voxel into `out` and returns it, blended
+    // towards its night color in psychedelic mode.
+    const nightVoxel = new THREE.Color();
     function voxelColor(voxel, out) {
-      return out.copy(palette[voxel.type]).multiplyScalar(voxel.shade);
+      out.copy(palette[voxel.type]).multiplyScalar(voxel.shade);
+      if (nightAmount > 0) out.lerp(nightVoxelColor(voxel, nightVoxel), nightAmount);
+      return out;
+    }
+
+    // Night colors: white bark and roots; each branch's leaves take one of
+    // the maple colors, so clumps read as patches of magenta, pink and red.
+    function nightVoxelColor(voxel, out) {
+      if (voxel.type === 'bark' || voxel.type === 'root') return out.copy(NIGHT_PALETTE[voxel.type]).multiplyScalar(voxel.shade);
+      if (voxel.type === 'tip') return out.copy(NIGHT_PALETTE.leafTip).multiplyScalar(voxel.shade);
+      const leaves = NIGHT_PALETTE.leaves;
+      out.copy(leaves[voxel.bone % leaves.length]).multiplyScalar(voxel.shade);
+      return voxel.type === 'vein' ? out.multiplyScalar(0.85) : out;
     }
 
     // Grows a new tree from the given settings and swaps it in for the old one.
@@ -1066,7 +1173,7 @@
     // A fixed pool of leaf cubes. Inactive ones are scaled to zero.
     // ------------------------------------------------------------------------
     const LEAF_POOL_SIZE = 200;
-    const leafMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.85, 0.16, 0.6), new THREE.MeshLambertMaterial(), LEAF_POOL_SIZE);
+    const leafMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.85, 0.16, 0.6), addNightGlow(new THREE.MeshLambertMaterial(), 0.7), LEAF_POOL_SIZE);
     leafMesh.castShadow = true;
     leafMesh.frustumCulled = false;
     const fallingLeaves = [];
@@ -1365,14 +1472,22 @@
         }
       }
 
+      // Each part's night color, looked up by its day color.
+      const nightOf = new Map();
+      for (const part of Object.keys(NIGHT_PALETTE.house)) nightOf.set(house[part], NIGHT_PALETTE.house[part]);
+
       const list = [...cells.values()];
-      houseMesh = new THREE.InstancedMesh(cubeGeometry, new THREE.MeshLambertMaterial(), list.length);
+      houseMesh = new THREE.InstancedMesh(cubeGeometry, addNightGlow(new THREE.MeshLambertMaterial(), 0.55), list.length);
       const matrix = new THREE.Matrix4();
+      const nightColors = [];
       list.forEach((cell, i) => {
+        const shade = 0.93 + Math.random() * 0.1;
         matrix.makeTranslation(cell.x, cell.y, cell.z);
         houseMesh.setMatrixAt(i, matrix);
-        houseMesh.setColorAt(i, scratchColor.set(cell.color).multiplyScalar(0.93 + Math.random() * 0.1));
+        houseMesh.setColorAt(i, scratchColor.set(cell.color).multiplyScalar(shade));
+        nightColors.push((nightOf.get(cell.color) || NIGHT_PALETTE.house.wall).clone().multiplyScalar(shade));
       });
+      registerNightColors(houseMesh, nightColors);
       houseMesh.castShadow = true;
       houseMesh.receiveShadow = true;
       houseMesh.scale.setScalar(house.scale);
@@ -1592,20 +1707,26 @@
         }
       }
 
-      cenoteMesh = new THREE.InstancedMesh(cubeGeometry, new THREE.MeshLambertMaterial(), cells.length);
+      // Night: teal walls and floor, the plants turn maple pink.
+      const nightOf = new Map([
+        [rock, NIGHT_PALETTE.cenoteRock], [floorColor, NIGHT_PALETTE.cenoteFloor],
+        [leafColor, NIGHT_PALETTE.leaves[1]], [tipColor, NIGHT_PALETTE.leafTip]
+      ]);
+      cenoteMesh = new THREE.InstancedMesh(cubeGeometry, addNightGlow(new THREE.MeshLambertMaterial(), 0.45), cells.length);
       const matrix = new THREE.Matrix4();
       cells.forEach((cell, i) => {
         matrix.makeTranslation(cell[0], cell[1], cell[2]);
         cenoteMesh.setMatrixAt(i, matrix);
         cenoteMesh.setColorAt(i, scratchColor.copy(cell[3]).multiplyScalar(cell[4]));
       });
+      registerNightColors(cenoteMesh, cells.map(cell => nightOf.get(cell[3]).clone().multiplyScalar(cell[4])));
       cenoteMesh.castShadow = true;
       cenoteMesh.receiveShadow = true;
       cenoteMesh.position.set(cenote.x, 0, cenote.z);
 
       const waterGeometry = new THREE.CircleGeometry(cenote.radius * 1.2 + 1.5, 48);
       waterGeometry.rotateX(-Math.PI / 2);
-      cenoteWater = new THREE.Mesh(waterGeometry, new THREE.MeshPhongMaterial({
+      cenoteWater = new THREE.Mesh(waterGeometry, addNightGlow(registerNightMaterial(new THREE.MeshPhongMaterial({
         color: settings.water,
         emissive: settings.water,
         emissiveIntensity: 0.35,
@@ -1614,7 +1735,7 @@
         shininess: 90,
         specular: 0xffffff,
         depthWrite: false
-      }));
+      }), NIGHT_PALETTE.water, true), 1));
       cenoteWater.position.set(cenote.x, cenote.waterY, cenote.z);
       cenoteWater.receiveShadow = true;
       scene.add(cenoteMesh, cenoteWater);
@@ -1739,15 +1860,20 @@
       }
 
       // Turns a list of [x, y, z, color, shade] cells into one instanced mesh.
+      const nightOf = new Map([
+        [rock, NIGHT_PALETTE.rock], [rockTop, NIGHT_PALETTE.rockTop],
+        [bush, NIGHT_PALETTE.bush], [bushTop, NIGHT_PALETTE.bushTop]
+      ]);
       const makeMesh = cells => {
         if (!cells.length) return null;
-        const mesh = new THREE.InstancedMesh(cubeGeometry, new THREE.MeshLambertMaterial(), cells.length);
+        const mesh = new THREE.InstancedMesh(cubeGeometry, addNightGlow(new THREE.MeshLambertMaterial(), 0.5), cells.length);
         const matrix = new THREE.Matrix4();
         cells.forEach((cell, i) => {
           matrix.makeTranslation(cell[0], cell[1], cell[2]);
           mesh.setMatrixAt(i, matrix);
           mesh.setColorAt(i, scratchColor.copy(cell[3]).multiplyScalar(cell[4]));
         });
+        registerNightColors(mesh, cells.map(cell => nightOf.get(cell[3]).clone().multiplyScalar(cell[4])));
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         scene.add(mesh);
@@ -1907,8 +2033,13 @@
       }
 
       if (settings.vinesOn) {
+        // Vines grow in clumps along the rim (two sine waves with random
+        // phases), with mostly short strands and the odd long one.
         const chance = settings.vineDensity * 0.5;
-        const vineLength = () => settings.vineLength * (0.4 + random() * 0.6);
+        const phaseA = random() * 6.28;
+        const phaseB = random() * 6.28;
+        const clump = angle => Math.max(0, Math.sin(angle * 3 + phaseA) + 0.7 * Math.sin(angle * 7 + phaseB) - 0.2);
+        const vineLength = () => settings.vineLength * (0.25 + random() * random() * 1.1);
         const top = -0.6;
         if (settings.mode === 'Floating rock') {
           // Roughly one chance per unit of rim.
@@ -1917,7 +2048,7 @@
             const angle = i / samples * Math.PI * 2;
             const radius = islandRadius(angle) + 0.3;
             const facesFrontOrBack = Math.abs(Math.sin(angle)) > Math.abs(Math.cos(angle));
-            if (random() < chance) addVine(horizon.centerX + Math.cos(angle) * radius, top, Math.sin(angle) * radius, vineLength(), facesFrontOrBack);
+            if (random() < chance * clump(angle)) addVine(horizon.centerX + Math.cos(angle) * radius, top, Math.sin(angle) * radius, vineLength(), facesFrontOrBack);
           }
         } else {
           for (let i = 0; i < width; i++) {
@@ -1932,7 +2063,7 @@
           }
         }
         for (const [x, y, z] of spikeTips) {
-          if (random() < settings.vineDensity) addVine(x, y, z, 2 + random() * 4, random() < 0.5);
+          if (random() < settings.vineDensity * 0.5) addVine(x, y, z, 2 + random() * 4, random() < 0.5);
         }
       }
 
@@ -1955,13 +2086,15 @@
       }
 
       if (vineVoxels.length) {
-        const mesh = new THREE.InstancedMesh(cubeGeometry.clone(), new THREE.MeshLambertMaterial(), vineVoxels.length);
+        const mesh = new THREE.InstancedMesh(cubeGeometry.clone(), addNightGlow(new THREE.MeshLambertMaterial(), 0.6), vineVoxels.length);
         scale.set(0.5, 0.5, 0.5);
         vineVoxels.forEach((v, i) => {
           position.set(v[0], v[1], v[2]);
           mesh.setMatrixAt(i, matrix.compose(position, noRotation, scale));
           mesh.setColorAt(i, scratchColor.copy(v[3]).multiplyScalar(v[4]));
         });
+        registerNightColors(mesh, vineVoxels.map(v =>
+          (v[3] === palette.tip ? NIGHT_PALETTE.vineTip : NIGHT_PALETTE.vine).clone().multiplyScalar(v[4])));
         mesh.castShadow = true;
         scene.add(mesh);
         undersideMeshes.push(mesh);
@@ -2011,8 +2144,9 @@
       head.clear();
       legs.length = 0;
 
-      const fur = new THREE.MeshLambertMaterial({ color });
-      const dark = new THREE.MeshLambertMaterial({ color: new THREE.Color(color).multiplyScalar(0.6) });
+      const fur = addNightGlow(registerNightMaterial(new THREE.MeshLambertMaterial({ color }), NIGHT_PALETTE.fur), 0.4);
+      const dark = addNightGlow(registerNightMaterial(
+        new THREE.MeshLambertMaterial({ color: new THREE.Color(color).multiplyScalar(0.6) }), NIGHT_PALETTE.furDark), 0.4);
       const black = new THREE.MeshLambertMaterial({ color: '#1d1410' });
       capybara.parts.push(fur, dark, black);
       const box = (w, h, d, material, x, y, z, parent) => {
@@ -2300,7 +2434,7 @@
       if (kind === 'glow') {
         const gradient = ctx.createRadialGradient(c, c, 0, c, c, c);
         gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-        gradient.addColorStop(0.25, 'rgba(160, 240, 255, 0.6)');
+        gradient.addColorStop(0.25, 'rgba(129, 29, 243, 0.6)');
         gradient.addColorStop(1, 'rgba(120, 200, 255, 0)');
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, size, size);
@@ -2543,7 +2677,7 @@
         const seconds = Math.ceil(remaining);
         if (seconds !== psychedelic.shownSeconds) {
           psychedelic.shownSeconds = seconds;
-          timerLabel.textContent = 'Psychedelic mode · ' + seconds + 's';
+          timerLabel.textContent = 'Jungle vision· ' + seconds + 's';
           timerBar.setAttribute('aria-valuenow', String(seconds));
         }
         if (remaining <= 0) stopPsychedelic();
@@ -2561,6 +2695,14 @@
       stars.visible = a > 0.001;
       ambientLight.color.set(0xffffff).lerp(NIGHT.ambientSky, a);
       ambientLight.groundColor.set(0xdcdcdc).lerp(NIGHT.ambientGround, a);
+      for (const glow of nightGlows) glow.uniform.value = a * glow.strength;
+      if (a !== nightAmount) {
+        nightAmount = a;
+        for (const entry of nightMeshes) blendNightColors(entry);
+        for (const entry of nightMaterials) blendNightMaterial(entry);
+        recolorTree();
+        recolorFallingLeaves();
+      }
       if (a <= 0) {
         for (const material of birdMaterials) material.emissive.setRGB(0, 0, 0);
         return;
@@ -2579,8 +2721,16 @@
       for (const material of birdMaterials) material.emissive.copy(NIGHT.birdGlow).multiplyScalar(a);
     }
 
-    // Keeps each bird's rings centered on it and facing the camera. They
-    // fade in and out with psychedelic.amount.
+    // Keeps each bird's rings centered on it. Faster birds get bigger rings,
+    // and each ring starts facing the camera, then tilts part of the way
+    // towards the bird's flight direction, so it swings in 3D as it turns.
+    // They fade in and out with psychedelic.amount. Only a sample of
+    // RING_SAMPLE birds, spread evenly through the flock, show rings.
+    const RING_SAMPLE = 10;
+    const ringFacing = new Vec3();
+    const ringHeading = new Vec3();
+    const ringTilt = new Quat();
+    const noTilt = new Quat();
     function updateBoidOverlay() {
       const a = psychedelic.amount;
       const visible = a > 0.01;
@@ -2590,15 +2740,26 @@
       neighborRingMaterial.opacity = 0.22 * a;
       const neighborRadius = CONFIG.neighborRadius;
       const separationRadius = Math.max(1, neighborRadius * 0.28);
-      for (const bird of birds) {
-        bird.separationRing.visible = bird.neighborRing.visible = visible;
-        if (!visible) continue;
+      ringFacing.set(0, 0, 1).applyQuaternion(camera.quaternion); // towards the camera
+      const sampleStep = Math.max(1, Math.floor(birds.length / RING_SAMPLE));
+      birds.forEach((bird, i) => {
+        const sampled = i % sampleStep === 0 && i / sampleStep < RING_SAMPLE;
+        bird.separationRing.visible = bird.neighborRing.visible = visible && sampled;
+        if (!bird.separationRing.visible) return;
+        const speed = bird.velocity.length();
+        const speedScale = 0.5 + Math.min(1.5, speed / Math.max(1, CONFIG.maxSpeed));
+        if (speed > 0.01) {
+          ringHeading.copy(bird.velocity).divideScalar(speed);
+          ringTilt.setFromUnitVectors(ringFacing, ringHeading).slerp(noTilt, 0.4); // 60% of the full turn
+        } else {
+          ringTilt.identity();
+        }
         for (const [ring, radius] of [[bird.separationRing, separationRadius], [bird.neighborRing, neighborRadius]]) {
           ring.position.copy(bird.position);
-          ring.quaternion.copy(camera.quaternion);
-          ring.scale.setScalar(radius);
+          ring.quaternion.multiplyQuaternions(ringTilt, camera.quaternion);
+          ring.scale.setScalar(radius * speedScale);
         }
-      }
+      });
     }
 
     // ------------------------------------------------------------------------
