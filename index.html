@@ -5,58 +5,75 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>jlchapa — Portafolio</title>
   <meta name="description" content="Side projects built by pair programming with AI models like Claude and Codex." />
+
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="page" id="page">
-    <header class="header">
-      <a class="header-brand" href="https://www.github.com/jlchapa" target="_blank" rel="noreferrer">jlchapa</a>
-      <div class="header-links">
-        <button id="about-toggle" class="upper" aria-controls="about" aria-expanded="false">About</button>
-        <a href="https://www.github.com/jlchapa" target="_blank" rel="noreferrer">Github ↗</a>
-      </div>
-    </header>
+  <main class="stage">
+    <!-- three.js Tulum diorama renders here (scene.js) -->
+    <div id="scene" class="scene" aria-hidden="true"></div>
 
-    <main class="main">
-      <nav class="list" id="list" aria-label="Projects"></nav>
-
-      <a class="card" id="card" href="#" target="_blank" rel="noreferrer">
-        <div id="card-imgs"></div>
-        <div class="about" id="about" aria-hidden="true">
-          <p class="about-lede">I build small, opinionated tools for myself, then share them online in case they are useful for someone else. I'm interested in software that <span class="accent">respects our data</span>, uses free technologies and runs locally.</p>
-          <dl class="kv">
+    <header class="top">
+      <div class="top-left">
+        <a class="brand glass" href="https://www.github.com/jlchapa" target="_blank" rel="noopener">jlchapa</a>
+        <div id="about" class="about glass" hidden>
+          <p>I build small, opinionated tools for myself, then share them online in case they are useful for someone else. I'm interested in software that respects our data, uses free technologies and runs locally.</p>
+          <dl class="about-facts">
             <dt>Stack</dt><dd>Vanilla JS, HTML, CSS, TS</dd>
             <dt>Method</dt><dd>Pair programming with Claude and Codex</dd>
             <dt>Ethos</dt><dd>Local-first · No ads · Minimal dependencies</dd>
           </dl>
         </div>
+      </div>
+      <nav class="top-nav">
+        <button id="about-toggle" class="glass" type="button" aria-expanded="false" aria-controls="about">About</button>
+        <a class="glass" href="https://www.github.com/jlchapa" target="_blank" rel="noopener">Github ↗</a>
+      </nav>
+    </header>
+
+    <section class="projects glass" aria-labelledby="projects-title">
+      <h2 id="projects-title" class="projects-title">Projects</h2>
+      <a class="project" href="https://jlchapa.github.io/investment/" target="_blank" rel="noopener">
+        <span class="project-num">01</span>
+        <span class="project-body"><span class="project-name">Investing</span><span class="project-desc">A calculator and visualizer so you can asses if your capital and investments are enough to make passive income or F.I.R.E.</span></span>
+        <span class="project-arrow">↗</span>
       </a>
+      <a class="project" href="https://suhuy.com" target="_blank" rel="noopener">
+        <span class="project-num">02</span>
+        <span class="project-body"><span class="project-name">Brain</span><span class="project-desc">A set of daily puzzle games — sequence, digits, and shapes — for a bit of mental exercise. Progress tracked locally on your device.</span></span>
+        <span class="project-arrow">↗</span>
+      </a>
+      <a class="project" href="https://jlchapa.github.io/gym-progress/" target="_blank" rel="noopener">
+        <span class="project-num">03</span>
+        <span class="project-body"><span class="project-name">GymProgress</span><span class="project-desc">A way to track gym progress on device. Snap a mirror photo every week then a small model reads the silhouette, posture, and composition trends. Photos never leave your device.</span></span>
+        <span class="project-arrow">↗</span>
+      </a>
+    </section>
 
-      <div class="detail" id="detail"></div>
-    </main>
-
-    <footer class="footer">
-      <div class="footer-row">
-        <span>(Scroll or use ← →)</span>
-        <span id="counter">01 — 03</span>
+    <footer class="footer glass">
+      <div class="footer-links">
+        <span class="muted">© 2026</span>
+        <a href="https://www.linkedin.com/in/jllc/" target="_blank" rel="noopener">Linkedin ↗</a>
+        <a href="https://medium.com/@jllc" target="_blank" rel="noopener">@jllc ↗</a>
+        <a href="https://medium.com/@blackpolygon" target="_blank" rel="noopener">@blackpolygon ↗</a>
+        <a href="https://x.com/jose_luisleal" target="_blank" rel="noopener">X ↗</a>
       </div>
-      <div class="progress"><div class="progress-bar" id="progress"></div></div>
-      <div class="title-wrap" id="title"></div>
-      <div class="footer-row">
-        <div class="footer-links">
-          <span>© 2026</span>
-          <a href="https://www.linkedin.com/in/jllc/" target="_blank" rel="noreferrer">Linkedin ↗</a>
-          <a href="https://medium.com/@jllc" target="_blank" rel="noreferrer">@jllc ↗</a>
-          <a href="https://medium.com/@blackpolygon" target="_blank" rel="noreferrer">@blackpolygon ↗</a>
-          <a href="https://x.com/jose_luisleal" target="_blank" rel="noreferrer">X ↗</a>
-        </div>
-        <span class="footer-note">Made with &lt;3 · Pair programmed with Claude &amp; Codex</span>
-      </div>
+      <span class="muted">Made with &lt;3 · Pair programmed with Claude &amp; Codex</span>
     </footer>
+  </main>
 
-    <div class="cursor" id="cursor" aria-hidden="true"></div>
-  </div>
-
-  <script src="app.js"></script>
+  <script>
+    (function () {
+      var btn = document.getElementById('about-toggle');
+      var panel = document.getElementById('about');
+      btn.addEventListener('click', function () {
+        var open = panel.hidden;
+        panel.hidden = !open;
+        btn.setAttribute('aria-expanded', String(open));
+      });
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js" integrity="sha384-Lwojr+0fOVR25P8bdL6E0T2dv0q0ZT4Yy2Ia1dGOz6b5jLSzWZkdqlw0cKTQYKzT" crossorigin="anonymous"></script>
+  <script src="scene.js"></script>
 </body>
 </html>
