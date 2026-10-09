@@ -247,11 +247,24 @@
     // ------------------------------------------------------------------------
     // Renderer, camera and lights
     // ------------------------------------------------------------------------
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Quality: phones and tablets (coarse pointer) get a lower pixel ratio
+    // cap, a smaller shadow map and cheaper shadow filtering. Screens that
+    // are already dense (2x and up) skip antialiasing, since it costs a lot
+    // of fill rate there and the edges are already fine.
+    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+    const quality = {
+      maxPixelRatio: isTouchDevice ? 1.5 : 2,
+      minPixelRatio: 1,
+      pixelRatio: 1, // current value, lowered by adaptPixelRatio() when frames are slow
+      shadowMapSize: isTouchDevice ? 1024 : 2048
+    };
+    quality.pixelRatio = Math.min(window.devicePixelRatio, quality.maxPixelRatio);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: window.devicePixelRatio < 2 });
+    renderer.setPixelRatio(quality.pixelRatio);
     renderer.setSize(host.clientWidth, host.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = isTouchDevice ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     renderer.domElement.style.display = 'block';
     host.appendChild(renderer.domElement);
 
@@ -274,7 +287,7 @@
     sun.target.position.set(0, 20, 0);
     scene.add(sun.target);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
     Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 10, far: 320 });
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 0.03;
@@ -1122,17 +1135,22 @@
 
     // Resizes the renderer and picks a camera distance and target so the
     // tree, house and cenote all fit on screen. With the overlay on a narrow
-    // screen, the scene shifts right to make room for the projects panel.
+    // screen, the scene shifts right to make room for the projects panel; in
+    // portrait (phones) the panel sits at the bottom, so the scene fills the
+    // width and shifts up instead.
     function fitCamera() {
       const width = host.clientWidth;
       const height = host.clientHeight;
       if (!width || !height || !tree) return;
+      const pixelRatio = Math.min(quality.pixelRatio, window.devicePixelRatio);
+      if (pixelRatio !== renderer.getPixelRatio()) renderer.setPixelRatio(pixelRatio);
       renderer.setSize(width, height);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
 
       const tanHalfFov = Math.tan(toRad(camera.fov / 2));
-      const narrow = overlayOn && camera.aspect < 1.9;
+      const portrait = overlayOn && camera.aspect < 0.8;
+      const narrow = overlayOn && !portrait && camera.aspect < 1.9;
       const cenoteReach = cenote ? cenote.radius * 1.2 + 4 : 0;
       const house = houseLayout;
       const minX = Math.min(
@@ -1149,6 +1167,7 @@
       const centerX = Math.round((minX + maxX) / 2);
       if (centerX !== horizon.centerX) {
         horizon.centerX = centerX;
+        resyncNeeded = true; // the underside and scatter follow the island
         if (isIsland()) buildGroundShapes();
       }
 
@@ -1156,11 +1175,12 @@
       // enough to show the rock hanging below it.
       const bottom = -undersideDepth * 0.6;
       const spanY = tree.maxY - bottom;
-      const spanX = (maxX - minX) * (narrow ? 1.55 : 1.2);
+      const spanX = (maxX - minX) * (narrow ? 1.55 : portrait ? 1.0 : 1.2);
       cameraDistance = Math.max(spanY * 1.35 / (2 * tanHalfFov), spanX / (2 * tanHalfFov * camera.aspect));
+      const halfHeight = cameraDistance * tanHalfFov;
       cameraTarget.set(
-        (minX + maxX) / 2 + (narrow ? -cameraDistance * tanHalfFov * camera.aspect * 0.22 : 0),
-        bottom + spanY * 0.52,
+        (minX + maxX) / 2 + (narrow ? -halfHeight * camera.aspect * 0.22 : 0),
+        bottom + spanY * 0.52 - (portrait ? halfHeight * 0.3 : 0),
         0
       );
     }
@@ -1235,7 +1255,8 @@
     // to a bird with a tail (1).
     // ------------------------------------------------------------------------
     const BIRD_SHADES = [1, 0.93, 0.86, 0.78]; // birds get slightly different tones
-    const birdMaterials = BIRD_SHADES.map(() => new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, flatShading: true }));
+    const MAX_BIRDS = 150;
+    const birdMaterial = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, flatShading: true });
 
     // Right wing outlines as (x, y, z) points, plus the center they fan from.
     const PLANE_WING = [[0, 0, 0.95], [0.32, 0.02, 0.43], [0.63, 0.04, -0.1], [0.95, 0.06, -0.62], [0.47, 0.03, -0.585], [0, 0, -0.55]];
@@ -1261,6 +1282,43 @@
     bodyGeometry.setAttribute('position', new THREE.Float32BufferAttribute(triangleFan([0, 0, 0], BIRD_BODY, true), 3));
     bodyGeometry.computeVertexNormals();
 
+    // All birds are drawn with one instanced mesh per part (keel, body and
+    // the two wings), so the whole flock costs four draw calls instead of
+    // three or four per bird. Each bird still has a plain Object3D hierarchy
+    // for its pose; updateBirdInstances() copies those matrices across.
+    const birdParts = [keelGeometry, bodyGeometry, leftWingGeometry, rightWingGeometry].map(geometry => {
+      const mesh = new THREE.InstancedMesh(geometry, birdMaterial, MAX_BIRDS);
+      mesh.count = 0;
+      mesh.frustumCulled = false; // birds fly all over; one bound for the flock isn't worth it
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      scene.add(mesh);
+      return mesh;
+    });
+    const [keelMesh, bodyMesh] = birdParts;
+
+    // Copies every bird's part transforms into the instanced meshes.
+    function updateBirdInstances() {
+      birds.forEach((bird, i) => {
+        bird.group.updateMatrixWorld(true);
+        birdParts[0].setMatrixAt(i, bird.keel.matrixWorld);
+        birdParts[1].setMatrixAt(i, bird.body.matrixWorld);
+        birdParts[2].setMatrixAt(i, bird.leftWingPart.matrixWorld);
+        birdParts[3].setMatrixAt(i, bird.rightWingPart.matrixWorld);
+      });
+      for (const mesh of birdParts) {
+        mesh.count = birds.length;
+        mesh.instanceMatrix.needsUpdate = true;
+      }
+    }
+
+    // Gives every bird slot its shade of the bird color.
+    function colorBirds(color) {
+      for (const mesh of birdParts) {
+        for (let i = 0; i < MAX_BIRDS; i++) mesh.setColorAt(i, scratchColor.set(color).multiplyScalar(BIRD_SHADES[i % BIRD_SHADES.length]));
+        mesh.instanceColor.needsUpdate = true;
+      }
+    }
+
     let birdShape = -1; // last applied CONFIG.birdShape
 
     // Rebuilds the shared wing geometry for a shape between paper plane (0)
@@ -1277,35 +1335,33 @@
       leftWingGeometry.setAttribute('position', new THREE.Float32BufferAttribute(left, 3));
       leftWingGeometry.computeVertexNormals();
       for (const bird of birds) applyBodyShape(bird, shape);
+      bodyMesh.visible = shape > 0.01;
+      keelMesh.visible = shape < 0.99;
     }
 
     // Scales a bird's keel and body for the current shape.
     function applyBodyShape(bird, shape) {
       bird.keel.scale.set(1, Math.max(0.001, 1 - shape), 1);
       bird.body.scale.setScalar(Math.max(0.001, shape));
-      bird.body.visible = shape > 0.01;
-      bird.keel.visible = shape < 0.99;
     }
 
     const birds = [];
     const flockTargets = [new Vec3(), new Vec3(), new Vec3()]; // each of the 3 flocks circles its own point
     let birdScale = 1.8;
 
-    // Creates bird number i, adds it to the scene and returns its state.
+    // Creates bird number i and returns its state. Its parts are empty
+    // Object3Ds that only hold transforms; the instanced meshes draw them.
     function makeBird(i) {
       const group = new THREE.Group();
-      const material = birdMaterials[i % birdMaterials.length];
-      const keel = new THREE.Mesh(keelGeometry, material);
-      const body = new THREE.Mesh(bodyGeometry, material);
-      const leftWing = new THREE.Group();
+      const keel = new THREE.Object3D();
+      const body = new THREE.Object3D();
+      const leftWing = new THREE.Group();   // wing pivots, rotated to flap
       const rightWing = new THREE.Group();
-      const leftWingMesh = new THREE.Mesh(leftWingGeometry, material);
-      const rightWingMesh = new THREE.Mesh(rightWingGeometry, material);
-      for (const part of [keel, body, leftWingMesh, rightWingMesh]) part.castShadow = true;
-      leftWing.add(leftWingMesh);
-      rightWing.add(rightWingMesh);
+      const leftWingPart = new THREE.Object3D();
+      const rightWingPart = new THREE.Object3D();
+      leftWing.add(leftWingPart);
+      rightWing.add(rightWingPart);
       group.add(keel, body, leftWing, rightWing);
-      scene.add(group);
 
       // Psychedelic mode overlay: separation and neighbor radius rings.
       const separationRing = new THREE.LineLoop(ringGeometry, separationRingMaterial);
@@ -1314,7 +1370,7 @@
       scene.add(separationRing, neighborRing);
 
       const bird = {
-        group, keel, body, leftWing, rightWing,
+        group, keel, body, leftWing, rightWing, leftWingPart, rightWingPart,
         flock: i % 3,
         position: new Vec3(),
         velocity: new Vec3(),
@@ -1376,11 +1432,11 @@
     // Adds or removes birds to match the count. About half the new birds
     // start on a perch, the rest somewhere in the sky.
     function setBirdCount(count) {
-      count = Math.max(0, Math.min(150, Math.round(count)));
+      count = Math.max(0, Math.min(MAX_BIRDS, Math.round(count)));
       while (birds.length > count) {
         const bird = birds.pop();
         if (bird.perch) bird.perch.bird = null;
-        scene.remove(bird.group, bird.separationRing, bird.neighborRing);
+        scene.remove(bird.separationRing, bird.neighborRing);
       }
       while (birds.length < count) {
         const bird = makeBird(birds.length);
@@ -2542,7 +2598,8 @@
       amount: 0,       // 0 day .. 1 night, faded in and out over FADE seconds
       fadeFrom: 0,     // amount when the mode last switched
       switchedAt: -1e9, // clock time of that switch
-      shownSeconds: -1 // last value written to the countdown label
+      shownSeconds: -1, // last value written to the countdown label
+      appliedAmount: -1 // amount the scene colors were last blended to
     };
     const NIGHT = {
       skyTop: new THREE.Color('#05031f'),
@@ -2658,6 +2715,8 @@
     }
 
     window.tulumScene.startPsychedelic = startPsychedelic; // handy from the console
+    window.tulumScene.renderer = renderer; // renderer.info shows draw calls and memory
+    window.tulumScene.scene = scene;
     timerLabel.addEventListener('click', () => { if (psychedelic.active) stopPsychedelic(); });
 
     function stopPsychedelic() {
@@ -2703,22 +2762,20 @@
         recolorTree();
         recolorFallingLeaves();
       }
-      if (a <= 0) {
-        for (const material of birdMaterials) material.emissive.setRGB(0, 0, 0);
-        return;
-      }
+      if (a === psychedelic.appliedAmount) return;
+      psychedelic.appliedAmount = a;
 
-      skyUniforms.uTopColor.value.lerp(NIGHT.skyTop, a);
-      skyUniforms.uHorizonColor.value.lerp(NIGHT.skyHorizon, a);
-      clearColor.lerp(NIGHT.background, a);
+      skyUniforms.uTopColor.value.copy(dayLook.skyTop).lerp(NIGHT.skyTop, a);
+      skyUniforms.uHorizonColor.value.copy(dayLook.skyHorizon).lerp(NIGHT.skyHorizon, a);
+      clearColor.copy(dayLook.clear).lerp(NIGHT.background, a);
       renderer.setClearColor(clearColor, 1);
-      scene.fog.color.lerp(NIGHT.background, a);
-      groundSurface.material.color.lerp(NIGHT.ground, a);
-      plinth.material.color.lerp(NIGHT.plinth, a);
-      sun.color.lerp(NIGHT.sun, a);
-      sun.intensity += (1.2 - sun.intensity) * a;
-      ambientLight.intensity += (2.2 - ambientLight.intensity) * a;
-      for (const material of birdMaterials) material.emissive.copy(NIGHT.birdGlow).multiplyScalar(a);
+      scene.fog.color.copy(dayLook.fog).lerp(NIGHT.background, a);
+      groundSurface.material.color.copy(dayLook.ground).lerp(NIGHT.ground, a);
+      plinth.material.color.copy(dayLook.plinth).lerp(NIGHT.plinth, a);
+      sun.color.copy(dayLook.sun).lerp(NIGHT.sun, a);
+      sun.intensity = dayLook.sunIntensity + (1.2 - dayLook.sunIntensity) * a;
+      ambientLight.intensity = dayLook.ambientIntensity + (2.2 - dayLook.ambientIntensity) * a;
+      birdMaterial.emissive.copy(NIGHT.birdGlow).multiplyScalar(a);
     }
 
     // Keeps each bird's rings centered on it. Faster birds get bigger rings,
@@ -2768,6 +2825,10 @@
     // Called every frame. Each group of settings is serialized and compared
     // with the last version, and only the parts that changed are rebuilt.
     // ------------------------------------------------------------------------
+    const dayLook = {
+      skyTop: new THREE.Color(), skyHorizon: new THREE.Color(), clear: new THREE.Color(), fog: new THREE.Color(),
+      ground: new THREE.Color(), plinth: new THREE.Color(), sun: new THREE.Color(), sunIntensity: 1, ambientIntensity: 1
+    };
     const lastApplied = {
       tree: '', colors: '', birdColor: '', cenote: '', horizon: '', house: '', cloud: '', scatter: '',
       groundTexture: null, underside: '', capybara: ''
@@ -2838,7 +2899,7 @@
 
       if (c.birdColor !== lastApplied.birdColor) {
         lastApplied.birdColor = c.birdColor;
-        birdMaterials.forEach((material, i) => material.color.set(c.birdColor).multiplyScalar(BIRD_SHADES[i]));
+        colorBirds(c.birdColor);
       }
 
       // Sky, background and fog color.
@@ -2999,6 +3060,34 @@
         birdCount = c.birdCount;
         setBirdCount(c.birdCount);
       }
+
+      // Remember the day colors, so psychedelic mode can blend from them
+      // every frame without syncConfig() having to run again.
+      dayLook.skyTop.copy(skyUniforms.uTopColor.value);
+      dayLook.skyHorizon.copy(skyUniforms.uHorizonColor.value);
+      dayLook.clear.copy(clearColor);
+      dayLook.fog.copy(scene.fog.color);
+      dayLook.ground.copy(groundSurface.material.color);
+      dayLook.plinth.copy(plinth.material.color);
+      dayLook.sun.copy(sun.color);
+      dayLook.sunIntensity = sun.intensity;
+      dayLook.ambientIntensity = ambientLight.intensity;
+    }
+
+    // syncConfig() only runs when a CONFIG value changed since the last
+    // frame (or something asked for a resync), instead of rebuilding its
+    // settings objects and parsing colors on every frame.
+    const configSnapshot = {};
+    let resyncNeeded = true;
+    function configChanged() {
+      let changed = false;
+      for (const key in CONFIG) {
+        if (configSnapshot[key] !== CONFIG[key]) {
+          configSnapshot[key] = CONFIG[key];
+          changed = true;
+        }
+      }
+      return changed;
     }
     syncConfig();
 
@@ -3489,12 +3578,55 @@
 
     // One animation frame: apply config changes, update the wind, then
     // advance every moving part and render.
+    // Adaptive resolution: every 2 seconds, compare the average frame time
+    // with the budget. Slow frames lower the pixel ratio a step; a long run
+    // of fast frames raises it again. The gap between the two thresholds
+    // (and the slower climb back) keeps it from flip-flopping.
+    const frameStats = { time: 0, frames: 0, fastStreak: 0 };
+    function adaptPixelRatio(rawDt) {
+      if (rawDt > 0.25) return; // a hidden tab or a hitch, not a real frame time
+      frameStats.time += rawDt;
+      frameStats.frames++;
+      if (frameStats.time < 2) return;
+      const average = frameStats.time / frameStats.frames;
+      frameStats.time = frameStats.frames = 0;
+      const ceiling = Math.min(window.devicePixelRatio, quality.maxPixelRatio);
+      let next = quality.pixelRatio;
+      if (average > 1 / 45) {
+        next = Math.max(quality.minPixelRatio, quality.pixelRatio - 0.25);
+        frameStats.fastStreak = 0;
+      } else if (average < 1 / 58 && ++frameStats.fastStreak >= 3) {
+        next = Math.min(ceiling, quality.pixelRatio + 0.25);
+        frameStats.fastStreak = 0;
+      }
+      if (next !== quality.pixelRatio) {
+        quality.pixelRatio = next;
+        fitCamera();
+      }
+    }
+
+    // If the GPU drops the WebGL context (common on phones under memory
+    // pressure), stop drawing and let the CSS backdrop show instead.
+    let contextLost = false;
+    renderer.domElement.addEventListener('webglcontextlost', event => {
+      event.preventDefault();
+      contextLost = true;
+      renderer.domElement.style.visibility = 'hidden';
+    });
+
     function frame() {
+      if (contextLost) return;
       requestAnimationFrame(frame);
-      const dt = Math.min(clock.getDelta(), 0.05); // avoid big jumps after a hidden tab
+      const rawDt = clock.getDelta();
+      adaptPixelRatio(rawDt);
+      const dt = Math.min(rawDt, 0.05); // avoid big jumps after a hidden tab
       const t = clock.elapsedTime;
-      syncConfig();
-      updatePsychedelic(t); // after syncConfig, which resets the day colors
+      if (configChanged() || resyncNeeded) {
+        resyncNeeded = false;
+        syncConfig();
+        psychedelic.appliedAmount = -1; // reblend the new day colors
+      }
+      updatePsychedelic(t);
 
       // Wind blows mostly along +x, with slow gusts and a sideways wander.
       const windStrength = CONFIG.windStrength;
@@ -3509,6 +3641,7 @@
       updateTreeBones(t, dt);
       updateFallingLeaves(t, dt);
       updateBirds(t, dt);
+      updateBirdInstances();
       updateBoidOverlay();
       updateCapybara(t, dt);
       updateRipples(dt);
