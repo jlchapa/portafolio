@@ -355,6 +355,24 @@
       return new THREE.Mesh(geometry, material);
     }
 
+    // Joins several geometries into one (positions, with flat normals).
+    function mergePositions(geometries) {
+      const arrays = geometries.map(geometry => {
+        const flat = geometry.index ? geometry.toNonIndexed() : geometry;
+        return flat.attributes.position.array;
+      });
+      const merged = new Float32Array(arrays.reduce((sum, array) => sum + array.length, 0));
+      let offset = 0;
+      for (const array of arrays) {
+        merged.set(array, offset);
+        offset += array.length;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(merged, 3));
+      geometry.computeVertexNormals();
+      return geometry;
+    }
+
     // Removes a mesh from the scene and frees its geometry and material.
     function disposeMesh(mesh) {
       scene.remove(mesh);
@@ -1615,12 +1633,6 @@
       rightWing.add(rightWingPart);
       group.add(keel, body, leftWing, rightWing);
 
-      // Psychedelic mode overlay: separation and neighbor radius rings.
-      const separationRing = new THREE.LineLoop(ringGeometry, separationRingMaterial);
-      const neighborRing = new THREE.LineLoop(ringGeometry, neighborRingMaterial);
-      separationRing.visible = neighborRing.visible = false;
-      scene.add(separationRing, neighborRing);
-
       const bird = {
         group, keel, body, leftWing, rightWing, leftWingPart, rightWingPart,
         flock: i % 3,
@@ -1634,9 +1646,7 @@
         flapPhase: Math.random() * 6,
         yaw: 0,
         targetYaw: 0,
-        peck: 0,           // seconds left of a pecking animation
-        separationRing,
-        neighborRing
+        peck: 0            // seconds left of a pecking animation
       };
       applyBodyShape(bird, Math.max(0, birdShape));
       return bird;
@@ -1688,7 +1698,6 @@
       while (birds.length > count) {
         const bird = birds.pop();
         if (bird.perch) bird.perch.bird = null;
-        scene.remove(bird.separationRing, bird.neighborRing);
       }
       while (birds.length < count) {
         const bird = makeBird(birds.length);
@@ -2473,7 +2482,8 @@
       model: new THREE.Group(), // tilts forward while drinking
       head: new THREE.Group(),  // pivots at the neck
       legs: [],                 // hip pivots: front pair first, then back
-      parts: [],                // meshes and materials, for disposal
+      boxes: [],                // Object3Ds holding each box's transform
+      mesh: null,               // one instanced mesh drawing every box
       position: new Vec3(),
       heading: 0,
       state: 'idle',            // idle | walking | drinking
@@ -2495,28 +2505,31 @@
 
     // (Re)builds the capybara out of boxes in the given fur color: a barrel
     // body, a square head with a dark snout, little ears and eyes, and four
-    // legs that pivot at the hip.
+    // legs that pivot at the hip. Every box is an instance of one unit cube
+    // (scaled to size and tinted by instance color), so the whole capybara
+    // is a single draw call; the boxes themselves are empty Object3Ds in the
+    // body/head/leg hierarchy, and updateCapybaraInstances() copies their
+    // transforms across each frame.
     function buildCapybaraModel(color) {
       const { model, head, legs } = capybara;
-      for (const part of capybara.parts) part.dispose();
-      capybara.parts = [];
+      if (capybara.mesh) disposeMesh(capybara.mesh);
       model.clear();
       head.clear();
       legs.length = 0;
+      capybara.boxes = [];
 
-      const fur = addNightGlow(registerNightMaterial(new THREE.MeshLambertMaterial({ color }), NIGHT_PALETTE.fur), 0.4);
-      const dark = addNightGlow(registerNightMaterial(
-        new THREE.MeshLambertMaterial({ color: new THREE.Color(color).multiplyScalar(0.6) }), NIGHT_PALETTE.furDark), 0.4);
-      const black = new THREE.MeshLambertMaterial({ color: '#1d1410' });
-      capybara.parts.push(fur, dark, black);
-      const box = (w, h, d, material, x, y, z, parent) => {
-        const geometry = new THREE.BoxGeometry(w, h, d);
-        capybara.parts.push(geometry);
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(x, y, z);
-        mesh.castShadow = true;
-        parent.add(mesh);
-        return mesh;
+      const fur = new THREE.Color(color);
+      const dark = fur.clone().multiplyScalar(0.6);
+      const black = new THREE.Color('#1d1410');
+      const nightOf = new Map([[fur, NIGHT_PALETTE.fur], [dark, NIGHT_PALETTE.furDark], [black, black]]);
+      const colors = [];
+      const box = (w, h, d, boxColor, x, y, z, parent) => {
+        const holder = new THREE.Object3D();
+        holder.position.set(x, y, z);
+        holder.scale.set(w, h, d);
+        parent.add(holder);
+        capybara.boxes.push(holder);
+        colors.push(boxColor);
       };
 
       box(1.9, 1.5, 3.2, fur, 0, 1.55, 0, model);    // body
@@ -2536,6 +2549,27 @@
       box(0.3, 0.3, 0.2, dark, -0.45, 0.9, 0.2, head);   // ears
       box(0.3, 0.3, 0.2, dark, 0.45, 0.9, 0.2, head);
       model.add(head);
+
+      const mesh = new THREE.InstancedMesh(cubeGeometry, addNightGlow(new THREE.MeshLambertMaterial(), 0.4), capybara.boxes.length);
+      colors.forEach((boxColor, i) => mesh.setColorAt(i, boxColor));
+      registerNightColors(mesh, colors.map(boxColor => nightOf.get(boxColor)));
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.castShadow = true;
+      mesh.frustumCulled = false; // its bounds would change as it walks
+      model.add(mesh); // instance matrices are relative to the model
+      capybara.mesh = mesh;
+      updateCapybaraInstances();
+    }
+
+    // Copies each box's transform, relative to the model, into the mesh.
+    const capybaraToModel = new THREE.Matrix4();
+    const capybaraBoxMatrix = new THREE.Matrix4();
+    function updateCapybaraInstances() {
+      const { model, mesh, boxes } = capybara;
+      model.updateMatrixWorld(true);
+      capybaraToModel.copy(model.matrixWorld).invert();
+      boxes.forEach((holder, i) => mesh.setMatrixAt(i, capybaraBoxMatrix.multiplyMatrices(capybaraToModel, holder.matrixWorld)));
+      mesh.instanceMatrix.needsUpdate = true;
     }
 
     // Wraps an angle into -π..π.
@@ -2822,27 +2856,60 @@
       shininess: 140,
       flatShading: true
     });
-    const gem = new THREE.Group();
-    const gemCrown = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 1, 0.5, 8), gemMaterial);
-    gemCrown.position.y = 0.25;
-    const gemPavilion = new THREE.Mesh(new THREE.ConeGeometry(1, 1.4, 8).rotateX(Math.PI), gemMaterial);
-    gemPavilion.position.y = -0.7;
-    gem.add(gemCrown, gemPavilion);
+    // Both parts go into one geometry, so the gem is a single draw call.
+    const gem = new THREE.Mesh(mergePositions([
+      new THREE.CylinderGeometry(0.6, 1, 0.5, 8).translate(0, 0.25, 0),
+      new THREE.ConeGeometry(1, 1.4, 8).rotateX(Math.PI).translate(0, -0.7, 0)
+    ]), gemMaterial);
 
     const spriteMaterial = (map, color) => new THREE.SpriteMaterial({
       map, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false
     });
     const diamondGlow = new THREE.Sprite(spriteMaterial(makeSpriteTexture('glow'), '#9feaff'));
     diamondGlow.scale.setScalar(5);
-    const sparkleTexture = makeSpriteTexture('sparkle');
-    const sparkles = [];
-    for (let i = 0; i < 4; i++) sparkles.push(new THREE.Sprite(spriteMaterial(sparkleTexture, '#ffffff')));
+    // The four sparkles circling the gem are one Points object, each point
+    // with its own size and opacity, instead of four sprites.
+    const SPARKLES = 4;
+    const sparkleGeometry = new THREE.BufferGeometry();
+    sparkleGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SPARKLES * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    sparkleGeometry.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(SPARKLES), 1).setUsage(THREE.DynamicDrawUsage));
+    sparkleGeometry.setAttribute('aAlpha', new THREE.BufferAttribute(new Float32Array(SPARKLES), 1).setUsage(THREE.DynamicDrawUsage));
+    const sparkleMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uMap: { value: makeSpriteTexture('sparkle') },
+        uPixelsPerUnit: { value: 1 } // screen pixels per world unit at distance 1, set each frame
+      },
+      vertexShader: [
+        'attribute float aSize;',
+        'attribute float aAlpha;',
+        'uniform float uPixelsPerUnit;',
+        'varying float vAlpha;',
+        'void main() {',
+        '  vAlpha = aAlpha;',
+        '  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);',
+        '  gl_Position = projectionMatrix * mvPosition;',
+        '  gl_PointSize = aSize * uPixelsPerUnit / -mvPosition.z;', // world-sized, like a sprite
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'uniform sampler2D uMap;',
+        'varying float vAlpha;',
+        'void main() {',
+        '  gl_FragColor = vec4(1.0, 1.0, 1.0, texture2D(uMap, gl_PointCoord).a * vAlpha);',
+        '}'
+      ].join('\n'),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const sparkles = new THREE.Points(sparkleGeometry, sparkleMaterial);
+    sparkles.frustumCulled = false; // the points move every frame
 
     // Invisible, generous hit area so the small diamond is easy to point at.
     const diamondHitArea = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 8), new THREE.MeshBasicMaterial({ visible: false }));
 
     const diamond = new THREE.Group();
-    diamond.add(gem, diamondGlow, diamondHitArea, ...sparkles);
+    diamond.add(gem, diamondGlow, diamondHitArea, sparkles);
     diamond.visible = false;
     scene.add(diamond);
     let diamondHovered = false;
@@ -2870,13 +2937,16 @@
       gem.rotation.y += dt * 1.4;
       gemMaterial.emissiveIntensity = 0.45 + 0.25 * Math.sin(t * 3) + (diamondHovered ? 0.4 : 0);
       diamondGlow.material.opacity = 0.55 + 0.25 * Math.sin(t * 3);
-      sparkles.forEach((sparkle, i) => {
+      const { position, aSize, aAlpha } = sparkleGeometry.attributes;
+      for (let i = 0; i < SPARKLES; i++) {
         const angle = t * 1.3 + i * Math.PI / 2;
-        sparkle.position.set(Math.cos(angle) * 1.6, Math.sin(t * 2 + i) * 0.8 + 0.2, Math.sin(angle) * 1.6);
+        position.setXYZ(i, Math.cos(angle) * 1.6, Math.sin(t * 2 + i) * 0.8 + 0.2, Math.sin(angle) * 1.6);
         const twinkle = Math.max(0, Math.sin(t * 4 + i * 1.7));
-        sparkle.scale.setScalar(0.3 + twinkle * 0.6);
-        sparkle.material.opacity = twinkle;
-      });
+        aSize.setX(i, (0.3 + twinkle * 0.6) * diamond.scale.x);
+        aAlpha.setX(i, twinkle);
+      }
+      position.needsUpdate = aSize.needsUpdate = aAlpha.needsUpdate = true;
+      sparkleMaterial.uniforms.uPixelsPerUnit.value = renderer.domElement.height / (2 * Math.tan(toRad(camera.fov / 2)));
     }
 
     // Whether the screen point (clientX, clientY) is on the diamond.
@@ -2985,15 +3055,32 @@
     stars.visible = false;
     sky.add(stars);
 
-    // Boid overlay: two camera-facing rings per bird (separation radius, bold;
-    // neighbor radius, faint).
-    const ringPoints = [];
-    for (let i = 0; i < 64; i++) ringPoints.push(new Vec3(Math.cos(i / 64 * Math.PI * 2), Math.sin(i / 64 * Math.PI * 2), 0));
-    const ringGeometry = new THREE.BufferGeometry().setFromPoints(ringPoints);
-    const ringMaterial = opacity => new THREE.LineBasicMaterial({ color: '#ffe94a', transparent: true, opacity, depthWrite: false, fog: false });
-    const separationRingMaterial = ringMaterial(0);
-    const neighborRingMaterial = ringMaterial(0);
-    let boidOverlayShown = false;
+    // Boid overlay: two rings around each sampled bird (separation radius,
+    // bold; neighbor radius, faint). All rings of one kind share a single
+    // line-segment buffer that updateBoidOverlay() rewrites every frame, so
+    // they cost two draw calls however many birds show them.
+    const RING_SAMPLE = 10;       // birds that show rings
+    const RING_SEGMENTS = 64;
+    const RING_COS = [];
+    const RING_SIN = [];
+    for (let k = 0; k <= RING_SEGMENTS; k++) {
+      RING_COS.push(Math.cos(k / RING_SEGMENTS * Math.PI * 2));
+      RING_SIN.push(Math.sin(k / RING_SEGMENTS * Math.PI * 2));
+    }
+    function makeRingLines() {
+      const positions = new THREE.BufferAttribute(new Float32Array(RING_SAMPLE * RING_SEGMENTS * 2 * 3), 3);
+      positions.setUsage(THREE.DynamicDrawUsage);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', positions);
+      const lines = new THREE.LineSegments(geometry,
+        new THREE.LineBasicMaterial({ color: '#ffe94a', transparent: true, opacity: 0, depthWrite: false, fog: false }));
+      lines.frustumCulled = false; // the points move every frame
+      lines.visible = false;
+      scene.add(lines);
+      return lines;
+    }
+    const separationRings = makeRingLines();
+    const neighborRings = makeRingLines();
 
     // Starts psychedelic mode: night palette, overlay styles, countdown, and
     // every bird leaves its perch.
@@ -3082,31 +3169,33 @@
       birdMaterial.emissive.copy(NIGHT.birdGlow).multiplyScalar(a);
     }
 
-    // Keeps each bird's rings centered on it. Faster birds get bigger rings,
-    // and each ring starts facing the camera, then tilts part of the way
-    // towards the bird's flight direction, so it swings in 3D as it turns.
-    // They fade in and out with psychedelic.amount. Only a sample of
-    // RING_SAMPLE birds, spread evenly through the flock, show rings.
-    const RING_SAMPLE = 10;
+    // Writes the rings of the sampled birds into the two line buffers. Each
+    // ring is centered on its bird, grows with the bird's speed, and starts
+    // facing the camera, then tilts part of the way towards the bird's
+    // flight direction, so it swings in 3D as the bird turns. They fade in
+    // and out with psychedelic.amount. The sampled birds are spread evenly
+    // through the flock.
     const ringFacing = new Vec3();
     const ringHeading = new Vec3();
     const ringTilt = new Quat();
+    const ringRotation = new Quat();
+    const ringRight = new Vec3();
+    const ringUp = new Vec3();
     const noTilt = new Quat();
     function updateBoidOverlay() {
       const a = psychedelic.amount;
       const visible = a > 0.01;
-      if (!visible && !boidOverlayShown) return;
-      boidOverlayShown = visible;
-      separationRingMaterial.opacity = 0.95 * a;
-      neighborRingMaterial.opacity = 0.22 * a;
+      separationRings.visible = neighborRings.visible = visible;
+      if (!visible) return;
+      separationRings.material.opacity = 0.95 * a;
+      neighborRings.material.opacity = 0.22 * a;
       const neighborRadius = CONFIG.neighborRadius;
       const separationRadius = Math.max(1, neighborRadius * 0.28);
       ringFacing.set(0, 0, 1).applyQuaternion(camera.quaternion); // towards the camera
       const sampleStep = Math.max(1, Math.floor(birds.length / RING_SAMPLE));
-      birds.forEach((bird, i) => {
-        const sampled = i % sampleStep === 0 && i / sampleStep < RING_SAMPLE;
-        bird.separationRing.visible = bird.neighborRing.visible = visible && sampled;
-        if (!bird.separationRing.visible) return;
+      let rings = 0;
+      for (let i = 0; i < birds.length && rings < RING_SAMPLE; i += sampleStep) {
+        const bird = birds[i];
         const speed = bird.velocity.length();
         const speedScale = 0.5 + Math.min(1.5, speed / Math.max(1, CONFIG.maxSpeed));
         if (speed > 0.01) {
@@ -3115,12 +3204,34 @@
         } else {
           ringTilt.identity();
         }
-        for (const [ring, radius] of [[bird.separationRing, separationRadius], [bird.neighborRing, neighborRadius]]) {
-          ring.position.copy(bird.position);
-          ring.quaternion.multiplyQuaternions(ringTilt, camera.quaternion);
-          ring.scale.setScalar(radius * speedScale);
+        // The ring's plane is spanned by the tilted camera's right and up.
+        ringRotation.multiplyQuaternions(ringTilt, camera.quaternion);
+        ringRight.set(1, 0, 0).applyQuaternion(ringRotation);
+        ringUp.set(0, 1, 0).applyQuaternion(ringRotation);
+        writeRing(separationRings, rings, bird.position, separationRadius * speedScale);
+        writeRing(neighborRings, rings, bird.position, neighborRadius * speedScale);
+        rings++;
+      }
+      for (const lines of [separationRings, neighborRings]) {
+        lines.geometry.setDrawRange(0, rings * RING_SEGMENTS * 2);
+        lines.geometry.attributes.position.needsUpdate = true;
+      }
+    }
+
+    // Writes ring number `ring` (a circle in the ringRight/ringUp plane)
+    // into a line-segment buffer, as RING_SEGMENTS start/end point pairs.
+    function writeRing(lines, ring, center, radius) {
+      const array = lines.geometry.attributes.position.array;
+      let o = ring * RING_SEGMENTS * 6;
+      for (let k = 0; k < RING_SEGMENTS; k++) {
+        for (let step = k; step <= k + 1; step++) {
+          const x = RING_COS[step] * radius;
+          const y = RING_SIN[step] * radius;
+          array[o++] = center.x + ringRight.x * x + ringUp.x * y;
+          array[o++] = center.y + ringRight.y * x + ringUp.y * y;
+          array[o++] = center.z + ringRight.z * x + ringUp.z * y;
         }
-      });
+      }
     }
 
     // ------------------------------------------------------------------------
@@ -3948,6 +4059,7 @@
       updateBirdInstances();
       updateBoidOverlay();
       updateCapybara(t, dt);
+      updateCapybaraInstances();
       updateRipples(dt);
       updateDiamond(t, dt);
       renderer.render(scene, camera);
