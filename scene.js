@@ -185,8 +185,182 @@
     // Scratch color reused wherever a color is computed and immediately copied.
     const scratchColor = new THREE.Color();
 
-    // A unit cube shared by every voxel mesh.
+    // A unit cube, used where voxels are still instanced (vines).
     const cubeGeometry = new THREE.BoxGeometry(1, 1, 1);
+
+    // ------------------------------------------------------------------------
+    // Voxel meshing
+    //
+    // A cube has 12 triangles, but in a voxel model most of its faces press
+    // against a neighbour and can never be seen. Instead of instancing whole
+    // cubes, the voxel builders merge their voxels into one geometry that
+    // only keeps faces touching empty space, which cuts the triangle count
+    // (and the shadow pass along with it) by more than half.
+    // ------------------------------------------------------------------------
+
+    // The six faces of a box: the axis the face looks along (0 x, 1 y, 2 z),
+    // its sign, and two in-plane axes u, v ordered so that u x v points out
+    // of the face (which makes the corners below counter-clockwise).
+    const BOX_FACES = [
+      { axis: 0, sign: 1, u: 1, v: 2 }, { axis: 0, sign: -1, u: 2, v: 1 },
+      { axis: 1, sign: 1, u: 2, v: 0 }, { axis: 1, sign: -1, u: 0, v: 2 },
+      { axis: 2, sign: 1, u: 0, v: 1 }, { axis: 2, sign: -1, u: 1, v: 0 }
+    ];
+
+    // Collects quads (two triangles each) with a flat normal and white
+    // vertex colors, then turns them into a BufferGeometry.
+    function createQuadBuilder() {
+      const positions = [];
+      const normals = [];
+      const indices = [];
+      let vertexCount = 0;
+      const corner = [0, 0, 0];
+      return {
+        get quadCount() { return vertexCount / 4; },
+        // Adds face `face` (an index into BOX_FACES) of the box from min to max.
+        addBoxFace(min, max, face) {
+          const { axis, sign, u, v } = BOX_FACES[face];
+          for (const [du, dv] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+            corner[axis] = sign > 0 ? max[axis] : min[axis];
+            corner[u] = du ? max[u] : min[u];
+            corner[v] = dv ? max[v] : min[v];
+            positions.push(corner[0], corner[1], corner[2]);
+            normals.push(axis === 0 ? sign : 0, axis === 1 ? sign : 0, axis === 2 ? sign : 0);
+          }
+          indices.push(vertexCount, vertexCount + 1, vertexCount + 2, vertexCount, vertexCount + 2, vertexCount + 3);
+          vertexCount += 4;
+        },
+        build() {
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+          geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+          geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(vertexCount * 3).fill(1), 3));
+          geometry.setIndex(indices);
+          return geometry;
+        }
+      };
+    }
+
+    // Merges unit voxels centered on `points` ([x, y, z] each) into one
+    // geometry, skipping faces shared by two voxels. With `groups`, a face is
+    // only skipped when both voxels are in the same group (the tree uses its
+    // bones here, so a gap never opens where two bones bend apart).
+    // `groupAt(x, y, z)` can replace the neighbor lookup when hidden voxels
+    // were left out of `points`; it returns the group there, or undefined.
+    // geometry.userData.faceStart[i] .. faceStart[i + 1] are voxel i's quads.
+    function buildVoxelGeometry(points, groups, groupAt) {
+      if (!groupAt) {
+        const index = new Map();
+        points.forEach((p, i) => index.set(p[0] + ',' + p[1] + ',' + p[2], groups ? groups[i] : 0));
+        groupAt = (x, y, z) => index.get(x + ',' + y + ',' + z);
+      }
+      const builder = createQuadBuilder();
+      const faceStart = new Uint32Array(points.length + 1);
+      const min = [0, 0, 0];
+      const max = [0, 0, 0];
+      points.forEach((p, i) => {
+        faceStart[i] = builder.quadCount;
+        for (let a = 0; a < 3; a++) {
+          min[a] = p[a] - 0.5;
+          max[a] = p[a] + 0.5;
+        }
+        BOX_FACES.forEach((face, f) => {
+          const nx = p[0] + (face.axis === 0 ? face.sign : 0);
+          const ny = p[1] + (face.axis === 1 ? face.sign : 0);
+          const nz = p[2] + (face.axis === 2 ? face.sign : 0);
+          const neighbor = groupAt(nx, ny, nz);
+          if (neighbor !== undefined && neighbor === (groups ? groups[i] : 0)) return;
+          builder.addBoxFace(min, max, f);
+        });
+      });
+      faceStart[points.length] = builder.quadCount;
+      const geometry = builder.build();
+      geometry.userData.faceStart = faceStart;
+      return geometry;
+    }
+
+    // Paints every vertex of voxel i in a merged voxel geometry.
+    function paintVoxel(geometry, i, color) {
+      const { faceStart } = geometry.userData;
+      const array = geometry.attributes.color.array;
+      for (let vertex = faceStart[i] * 4; vertex < faceStart[i + 1] * 4; vertex++) color.toArray(array, vertex * 3);
+    }
+
+    // Greedy meshing: like buildVoxelGeometry(), but exposed faces that lie
+    // side by side in the same plane and share a key are merged into larger
+    // rectangles. That only works when such faces look the same, so the
+    // caller colors them in the shader rather than per voxel. The tree uses
+    // this, with its bone and voxel type as the key.
+    // Returns the geometry; geometry.userData.quadKeys holds each quad's key.
+    function buildGreedyVoxelGeometry(points, groups, keys, groupAt) {
+      const builder = createQuadBuilder();
+      const quadKeys = [];
+      const min = [0, 0, 0];
+      const max = [0, 0, 0];
+      const neighbor = [0, 0, 0];
+      BOX_FACES.forEach((face, f) => {
+        const { axis, sign, u, v } = face;
+        // This direction's exposed faces, bucketed by their plane.
+        const slices = new Map();
+        points.forEach((p, i) => {
+          neighbor[0] = p[0];
+          neighbor[1] = p[1];
+          neighbor[2] = p[2];
+          neighbor[axis] += sign;
+          const group = groupAt(neighbor[0], neighbor[1], neighbor[2]);
+          if (group !== undefined && group === groups[i]) return;
+          let slice = slices.get(p[axis]);
+          if (!slice) slices.set(p[axis], slice = new Map());
+          slice.set(p[u] + ',' + p[v], keys[i]);
+        });
+
+        for (const [level, slice] of slices) {
+          // Walk the faces row by row; each unused face starts a rectangle
+          // that grows along u, then along v while whole rows still match.
+          const cells = [...slice.keys()].map(k => k.split(',').map(Number)).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+          const used = new Set();
+          for (const [cu, cv] of cells) {
+            if (used.has(cu + ',' + cv)) continue;
+            const key = slice.get(cu + ',' + cv);
+            const matches = (a, b) => !used.has(a + ',' + b) && slice.get(a + ',' + b) === key;
+            let width = 1;
+            while (matches(cu + width, cv)) width++;
+            let height = 1;
+            grow: for (;;) {
+              for (let k = 0; k < width; k++) if (!matches(cu + k, cv + height)) break grow;
+              height++;
+            }
+            for (let dv = 0; dv < height; dv++) for (let du = 0; du < width; du++) used.add((cu + du) + ',' + (cv + dv));
+            min[axis] = max[axis] = level + sign * 0.5;
+            min[u] = cu - 0.5;
+            max[u] = cu + width - 0.5;
+            min[v] = cv - 0.5;
+            max[v] = cv + height - 0.5;
+            builder.addBoxFace(min, max, f);
+            quadKeys.push(key);
+          }
+        }
+      });
+      const geometry = builder.build();
+      geometry.userData.quadKeys = quadKeys;
+      return geometry;
+    }
+
+    // Builds a merged voxel mesh from [x, y, z, ...] cells, colored by
+    // colorAt(cell, i, out).
+    function makeVoxelMesh(cells, material, colorAt) {
+      const geometry = buildVoxelGeometry(cells);
+      cells.forEach((cell, i) => paintVoxel(geometry, i, colorAt(cell, i, scratchColor)));
+      material.vertexColors = true;
+      return new THREE.Mesh(geometry, material);
+    }
+
+    // Removes a mesh from the scene and frees its geometry and material.
+    function disposeMesh(mesh) {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    }
 
     // ------------------------------------------------------------------------
     // Random numbers
@@ -462,10 +636,29 @@
     // The patched vertex shader rotates and moves each voxel by its bone.
     // ------------------------------------------------------------------------
     const boneUniforms = { uBones: { value: null } };
+
+    // Tree colors live in uniforms: each vertex carries its voxel type
+    // (0 bark, 1 root, 2 leaf, 3 tip, 4 vein) and a base shade, and the
+    // shader picks the day and night colors and blends them. The per-voxel
+    // variation comes from a hash of the voxel cell, so merged faces still
+    // look like separate cubes. updateTreeColors() fills these.
+    const TREE_TYPES = ['bark', 'root', 'leaf', 'tip', 'vein'];
+    const treeColorUniforms = {
+      uTreeDay: { value: TREE_TYPES.map(() => new THREE.Color()) },
+      uTreeNight: { value: TREE_TYPES.map(() => new THREE.Color()) }, // leaf and vein use uTreeNightLeaves
+      uTreeNightLeaves: { value: [0, 1, 2, 3].map(() => new THREE.Color()) },
+      uTreeNightAmount: { value: 0 }
+    };
     const BONE_SHADER_HEADER =
       'uniform sampler2D uBones;\n' +
       'attribute float aBone;\n' +
       'vec3 rotateByQuat(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }\n';
+
+    const TREE_COLOR_VERTEX_HEADER =
+      'attribute float aType;\nattribute float aShade;\n' +
+      'uniform vec3 uTreeDay[5];\nuniform vec3 uTreeNight[5];\nuniform vec3 uTreeNightLeaves[4];\nuniform float uTreeNightAmount;\n' +
+      'varying vec3 vTreeColor;\nvarying vec3 vTreeCell;\nvarying float vTreeNoise;\n';
+    const TREE_COLOR_FRAGMENT_HEADER = 'varying vec3 vTreeColor;\nvarying vec3 vTreeCell;\nvarying float vTreeNoise;\n';
 
     // Patches a built-in three.js material so it moves vertices by their bone.
     // withNormals also rotates normals (needed for lighting, not for shadows).
@@ -476,15 +669,31 @@
           int treeBoneIndex = int(aBone + 0.5);
           vec4 treeBoneRotation = texelFetch(uBones, ivec2(treeBoneIndex * 2, 0), 0);
           vec3 treeBoneOffset = texelFetch(uBones, ivec2(treeBoneIndex * 2 + 1, 0), 0).xyz;
-          vec4 treePosition = instanceMatrix * vec4(transformed, 1.0);
+          vec4 treePosition = vec4(transformed, 1.0);
           treePosition.xyz = rotateByQuat(treeBoneRotation, treePosition.xyz) + treeBoneOffset;
           vec4 mvPosition = modelViewMatrix * treePosition;
           gl_Position = projectionMatrix * mvPosition;`);
         if (withNormals) {
-          vertexShader = vertexShader.replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+          // The lit material also rotates normals and does the coloring.
+          Object.assign(shader.uniforms, treeColorUniforms);
+          vertexShader = TREE_COLOR_VERTEX_HEADER + vertexShader.replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
           {
             vec4 treeNormalRotation = texelFetch(uBones, ivec2(int(aBone + 0.5) * 2, 0), 0);
             objectNormal = rotateByQuat(treeNormalRotation, objectNormal);
+          }
+          {
+            int treeType = int(aType + 0.5);
+            vec3 treeNight = treeType == 2 || treeType == 4 ? uTreeNightLeaves[int(mod(aBone + 0.5, 4.0))] : uTreeNight[treeType];
+            if (treeType == 4) treeNight *= 0.85;
+            vTreeColor = mix(uTreeDay[treeType], treeNight, uTreeNightAmount) * aShade;
+            vTreeNoise = treeType == 2 ? 0.06 : 0.145;
+            vTreeCell = position - normal * 0.5; // a point inside this face's voxel
+          }`);
+          shader.fragmentShader = TREE_COLOR_FRAGMENT_HEADER + shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+          {
+            vec3 treeCell = floor(vTreeCell + 0.5);
+            float treeHash = fract(sin(dot(treeCell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+            diffuseColor.rgb *= vTreeColor * (1.0 + (treeHash - 0.5) * vTreeNoise);
           }`);
         }
         shader.vertexShader = vertexShader;
@@ -552,14 +761,20 @@
     // Instanced meshes registered with their day and night instance colors;
     // blendNightColors() mixes between them by nightAmount.
     const nightMeshes = new Set();
+    // nightColors has one color per instance, or per voxel for a merged
+    // voxel mesh (spread over that voxel's vertices).
     function registerNightColors(mesh, nightColors) {
-      const day = mesh.instanceColor.array.slice();
+      const attribute = mesh.isInstancedMesh ? mesh.instanceColor : mesh.geometry.attributes.color;
+      const faceStart = mesh.geometry.userData.faceStart;
+      const day = attribute.array.slice();
       const night = new Float32Array(day.length);
-      nightColors.forEach((color, i) => color.toArray(night, i * 3));
-      const entry = { mesh, day, night, amount: -1 };
+      nightColors.forEach((color, i) => {
+        if (!faceStart) color.toArray(night, i * 3);
+        else for (let vertex = faceStart[i] * 4; vertex < faceStart[i + 1] * 4; vertex++) color.toArray(night, vertex * 3);
+      });
+      const entry = { attribute, day, night, amount: -1 };
       nightMeshes.add(entry);
       const forget = () => nightMeshes.delete(entry);
-      mesh.addEventListener('dispose', forget);
       mesh.material.addEventListener('dispose', forget);
       blendNightColors(entry);
     }
@@ -567,9 +782,9 @@
       if (entry.amount === nightAmount) return;
       entry.amount = nightAmount;
       const { day, night } = entry;
-      const out = entry.mesh.instanceColor.array;
+      const out = entry.attribute.array;
       for (let i = 0; i < out.length; i++) out[i] = day[i] + (night[i] - day[i]) * nightAmount;
-      entry.mesh.instanceColor.needsUpdate = true;
+      entry.attribute.needsUpdate = true;
     }
 
     // Plain materials (water, capybara fur) blend their color the same way.
@@ -1014,18 +1229,47 @@
       const boneTexture = new THREE.DataTexture(boneData, boneCount * 2, 1, THREE.RGBAFormat, THREE.FloatType);
       boneTexture.needsUpdate = true;
 
-      const geometry = cubeGeometry.clone();
-      const boneIndices = new Float32Array(visible.length);
-      const mesh = new THREE.InstancedMesh(geometry, treeMaterial, visible.length);
-      mesh.customDepthMaterial = treeDepthMaterial;
-      const matrix = new THREE.Matrix4();
-      visible.forEach((v, i) => {
-        matrix.makeTranslation(v.x, v.y, v.z);
-        mesh.setMatrixAt(i, matrix);
-        boneIndices[i] = v.bone;
+      // One merged geometry with only the outward faces, merged into larger
+      // rectangles where neighbours share a bone and type. Faces between two
+      // bones are kept, so bending never opens a hole. Each vertex carries
+      // its bone (for the skinning shader), type and base shade (for color).
+      const typeIndex = v => TREE_TYPES.indexOf(v.type);
+      const keyOf = v => v.bone * 8 + typeIndex(v);
+      const geometry = buildGreedyVoxelGeometry(
+        visible.map(v => [v.x, v.y, v.z]),
+        visible.map(v => v.bone),
+        visible.map(keyOf),
+        (x, y, z) => {
+          const voxel = voxels.get(cellKey(x, y, z));
+          return voxel ? voxel.bone : undefined;
+        }
+      );
+      // Base shade per key: the average of its voxels (fronds have one shade
+      // each; elsewhere it averages out and the shader adds the variation).
+      const shadeSums = new Map();
+      for (const v of visible) {
+        const sum = shadeSums.get(keyOf(v)) || [0, 0];
+        sum[0] += v.shade;
+        sum[1]++;
+        shadeSums.set(keyOf(v), sum);
+      }
+      const { quadKeys } = geometry.userData;
+      const vertexCount = quadKeys.length * 4;
+      const boneIndices = new Float32Array(vertexCount);
+      const types = new Float32Array(vertexCount);
+      const shades = new Float32Array(vertexCount);
+      quadKeys.forEach((key, quad) => {
+        const [sum, count] = shadeSums.get(key);
+        boneIndices.fill(Math.floor(key / 8), quad * 4, quad * 4 + 4);
+        types.fill(key % 8, quad * 4, quad * 4 + 4);
+        shades.fill(sum / count, quad * 4, quad * 4 + 4);
       });
-      geometry.setAttribute('aBone', new THREE.InstancedBufferAttribute(boneIndices, 1));
-      mesh.setColorAt(0, palette.bark); // creates the instance color buffer; recolorTree() fills it
+      geometry.setAttribute('aBone', new THREE.BufferAttribute(boneIndices, 1));
+      geometry.setAttribute('aType', new THREE.BufferAttribute(types, 1));
+      geometry.setAttribute('aShade', new THREE.BufferAttribute(shades, 1));
+      geometry.deleteAttribute('color');
+      const mesh = new THREE.Mesh(geometry, treeMaterial);
+      mesh.customDepthMaterial = treeDepthMaterial;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false; // the shader moves voxels, so three.js bounds are unreliable
@@ -1056,8 +1300,7 @@
 
       if (tree) {
         scene.remove(tree.mesh);
-        tree.mesh.geometry.dispose();
-        tree.mesh.dispose();
+        tree.mesh.geometry.dispose(); // the tree material is shared and kept
         tree.boneTexture.dispose();
       }
       tree = {
@@ -1081,11 +1324,17 @@
       fitCamera();
     }
 
-    // Repaints every tree voxel after a color change.
+    // Updates the tree color uniforms after a palette or day/night change.
     function recolorTree() {
       if (!tree) return;
-      tree.voxels.forEach((v, i) => tree.mesh.setColorAt(i, voxelColor(v, scratchColor)));
-      tree.mesh.instanceColor.needsUpdate = true;
+      const { uTreeDay, uTreeNight, uTreeNightLeaves } = treeColorUniforms;
+      TREE_TYPES.forEach((type, i) => {
+        uTreeDay.value[i].copy(palette[type]);
+        if (NIGHT_PALETTE[type]) uTreeNight.value[i].copy(NIGHT_PALETTE[type]);
+      });
+      uTreeNight.value[3].copy(NIGHT_PALETTE.leafTip);
+      NIGHT_PALETTE.leaves.forEach((color, i) => uTreeNightLeaves.value[i].copy(color));
+      treeColorUniforms.uTreeNightAmount.value = nightAmount;
     }
 
     // Walks the bones from the root outwards (parents always come before
@@ -1463,8 +1712,7 @@
     // windows, a gable roof with solar panels, a vent pipe and a water tank.
     function buildHouse(house) {
       if (houseMesh) {
-        scene.remove(houseMesh);
-        houseMesh.dispose();
+        disposeMesh(houseMesh);
         houseMesh = null;
       }
       if (!house.on) return;
@@ -1533,15 +1781,12 @@
       for (const part of Object.keys(NIGHT_PALETTE.house)) nightOf.set(house[part], NIGHT_PALETTE.house[part]);
 
       const list = [...cells.values()];
-      houseMesh = new THREE.InstancedMesh(cubeGeometry, addNightGlow(new THREE.MeshLambertMaterial(), 0.55), list.length);
-      const matrix = new THREE.Matrix4();
       const nightColors = [];
-      list.forEach((cell, i) => {
+      houseMesh = makeVoxelMesh(list.map(cell => [cell.x, cell.y, cell.z]), addNightGlow(new THREE.MeshLambertMaterial(), 0.55), (_, i, out) => {
+        const cell = list[i];
         const shade = 0.93 + Math.random() * 0.1;
-        matrix.makeTranslation(cell.x, cell.y, cell.z);
-        houseMesh.setMatrixAt(i, matrix);
-        houseMesh.setColorAt(i, scratchColor.set(cell.color).multiplyScalar(shade));
         nightColors.push((nightOf.get(cell.color) || NIGHT_PALETTE.house.wall).clone().multiplyScalar(shade));
+        return out.set(cell.color).multiplyScalar(shade);
       });
       registerNightColors(houseMesh, nightColors);
       houseMesh.castShadow = true;
@@ -1561,8 +1806,7 @@
     // Builds a voxel cloud from a few overlapping ellipsoid blobs.
     function buildCloud(cloud) {
       if (cloudMesh) {
-        scene.remove(cloudMesh);
-        cloudMesh.dispose();
+        disposeMesh(cloudMesh);
         cloudMesh = null;
       }
       if (!cloud.on) return;
@@ -1587,18 +1831,10 @@
         }
       }
 
-      cloudMesh = new THREE.InstancedMesh(
-        cubeGeometry,
+      // Slightly brighter on top.
+      cloudMesh = makeVoxelMesh(cells,
         new THREE.MeshLambertMaterial({ color: cloud.color, emissive: cloud.color, emissiveIntensity: cloud.glow }),
-        cells.length
-      );
-      const matrix = new THREE.Matrix4();
-      cells.forEach((cell, i) => {
-        matrix.makeTranslation(cell[0], cell[1], cell[2]);
-        cloudMesh.setMatrixAt(i, matrix);
-        // Slightly brighter on top.
-        cloudMesh.setColorAt(i, scratchColor.setScalar(0.94 + random() * 0.06 + (cell[1] > 2 ? 0.03 : 0)));
-      });
+        (cell, i, out) => out.setScalar(0.94 + random() * 0.06 + (cell[1] > 2 ? 0.03 : 0)));
       cloudMesh.castShadow = true;
       cloudMesh.receiveShadow = true;
       cloudMesh.frustumCulled = false;
@@ -1697,8 +1933,7 @@
     // floor, a few rock pillars, hanging plants, and a glowing water surface.
     function buildCenote(settings) {
       if (cenoteMesh) {
-        scene.remove(cenoteMesh);
-        cenoteMesh.dispose();
+        disposeMesh(cenoteMesh);
         cenoteMesh = null;
       }
       if (cenoteWater) {
@@ -1768,13 +2003,8 @@
         [rock, NIGHT_PALETTE.cenoteRock], [floorColor, NIGHT_PALETTE.cenoteFloor],
         [leafColor, NIGHT_PALETTE.leaves[1]], [tipColor, NIGHT_PALETTE.leafTip]
       ]);
-      cenoteMesh = new THREE.InstancedMesh(cubeGeometry, addNightGlow(new THREE.MeshLambertMaterial(), 0.45), cells.length);
-      const matrix = new THREE.Matrix4();
-      cells.forEach((cell, i) => {
-        matrix.makeTranslation(cell[0], cell[1], cell[2]);
-        cenoteMesh.setMatrixAt(i, matrix);
-        cenoteMesh.setColorAt(i, scratchColor.copy(cell[3]).multiplyScalar(cell[4]));
-      });
+      cenoteMesh = makeVoxelMesh(cells, addNightGlow(new THREE.MeshLambertMaterial(), 0.45),
+        (cell, i, out) => out.copy(cell[3]).multiplyScalar(cell[4]));
       registerNightColors(cenoteMesh, cells.map(cell => nightOf.get(cell[3]).clone().multiplyScalar(cell[4])));
       cenoteMesh.castShadow = true;
       cenoteMesh.receiveShadow = true;
@@ -1808,10 +2038,7 @@
     // tree, the house, the cenote and each other.
     function buildScatter(settings) {
       for (const mesh of [rockMesh, bushMesh]) {
-        if (mesh) {
-          scene.remove(mesh);
-          mesh.dispose();
-        }
+        if (mesh) disposeMesh(mesh);
       }
       rockMesh = bushMesh = null;
 
@@ -1922,13 +2149,8 @@
       ]);
       const makeMesh = cells => {
         if (!cells.length) return null;
-        const mesh = new THREE.InstancedMesh(cubeGeometry, addNightGlow(new THREE.MeshLambertMaterial(), 0.5), cells.length);
-        const matrix = new THREE.Matrix4();
-        cells.forEach((cell, i) => {
-          matrix.makeTranslation(cell[0], cell[1], cell[2]);
-          mesh.setMatrixAt(i, matrix);
-          mesh.setColorAt(i, scratchColor.copy(cell[3]).multiplyScalar(cell[4]));
-        });
+        const mesh = makeVoxelMesh(cells, addNightGlow(new THREE.MeshLambertMaterial(), 0.5),
+          (cell, i, out) => out.copy(cell[3]).multiplyScalar(cell[4]));
         registerNightColors(mesh, cells.map(cell => nightOf.get(cell[3]).clone().multiplyScalar(cell[4])));
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -1996,7 +2218,8 @@
       const left = horizon.centerX - width / 2;
       const random = seededRandom(900 + settings.seed * 37);
       const stone = new THREE.Color(settings.color);
-      const pieces = []; // [x, topY, z, width, height, shade]
+      const pieces = []; // spike steps: [x, topY, z, width, height, shade]
+      let columns = null; // the rock under the island, one column per ground cell
       const spikeTips = []; // [x, y, z], where vines can hang from
 
       if (settings.mode === 'Diorama block') {
@@ -2013,6 +2236,8 @@
       } else {
         const map = buildIslandDepthMap(width, depth, 500 + settings.seed * 131);
         const columnBottom = new Float32Array(width * depth); // 0 = outside the island
+        const columnTop = new Float32Array(width * depth);
+        const columnShade = new Float32Array(width * depth);
         const topY = -1; // just under the sand surface
         // Under the cenote the rock starts below its floor, so it never
         // covers the water.
@@ -2040,7 +2265,8 @@
             const bottom = topY - Math.max(1, Math.round(rim + (settings.maxDepth - rim) * profile * lumpiness));
             if (bottom >= top) continue; // fully above the cenote's floor
             columnBottom[j * width + i] = bottom;
-            pieces.push([x, top, z, 1, top - bottom, 0.82 + gray * 0.28]);
+            columnTop[j * width + i] = top;
+            columnShade[j * width + i] = 0.82 + gray * 0.28;
             undersideDepth = Math.max(undersideDepth, -bottom);
           }
         }
@@ -2065,6 +2291,7 @@
           spikeTips.push([x, y, z]);
           undersideDepth = Math.max(undersideDepth, -y);
         }
+        columns = { bottom: columnBottom, top: columnTop, shade: columnShade };
       }
 
       // Vines: chains of half-size voxels with the odd leaf sticking out.
@@ -2128,14 +2355,70 @@
       const scale = new Vec3();
       const noRotation = new Quat();
 
-      if (pieces.length) {
-        const mesh = new THREE.InstancedMesh(cubeGeometry.clone(), islandRockMaterial, pieces.length);
-        pieces.forEach((p, i) => {
-          position.set(p[0], p[1] - p[4] / 2, p[2]);
-          scale.set(p[3], p[4], p[3]);
-          mesh.setMatrixAt(i, matrix.compose(position, noRotation, scale));
-          mesh.setColorAt(i, scratchColor.copy(stone).multiplyScalar(p[5]));
+      // The rock as one merged geometry. Column tops are hidden under the
+      // sand, so each column only gets its bottom face plus the strips of
+      // its sides that stick out below a shallower neighbor (or the rim).
+      // Rim columns keep their top, which closes the thin gap under the
+      // sand's edge.
+      // Spike steps are boxes without a top.
+      if (columns || pieces.length) {
+        const builder = createQuadBuilder();
+        const shades = []; // one per quad
+        const min = [0, 0, 0];
+        const max = [0, 0, 0];
+        const addFace = (face, shade) => {
+          builder.addBoxFace(min, max, face);
+          shades.push(shade);
+        };
+        if (columns) {
+          for (let j = 0; j < depth; j++) {
+            for (let i = 0; i < width; i++) {
+              const bottom = columns.bottom[j * width + i];
+              if (!bottom) continue;
+              const top = columns.top[j * width + i];
+              const shade = columns.shade[j * width + i];
+              const x = left + i;
+              const z = -depth / 2 + j;
+              min[0] = x; max[0] = x + 1;
+              min[2] = z; max[2] = z + 1;
+              min[1] = max[1] = bottom;
+              addFace(3, shade); // bottom
+              // Sides: +x, -x, +z, -z.
+              let onRim = false;
+              for (const [face, di, dj] of [[0, 1, 0], [1, -1, 0], [4, 0, 1], [5, 0, -1]]) {
+                const ni = i + di;
+                const nj = j + dj;
+                const inside = ni >= 0 && ni < width && nj >= 0 && nj < depth;
+                const neighborBottom = inside ? columns.bottom[nj * width + ni] : 0;
+                if (!neighborBottom) onRim = true;
+                const stripTop = neighborBottom ? Math.min(top, neighborBottom) : top;
+                if (stripTop <= bottom) continue; // the neighbor reaches as deep
+                min[1] = bottom;
+                max[1] = stripTop;
+                addFace(face, shade);
+              }
+              if (onRim) {
+                min[1] = max[1] = top;
+                addFace(2, shade);
+              }
+            }
+          }
+        }
+        for (const p of pieces) {
+          const half = p[3] / 2;
+          min[0] = p[0] - half; max[0] = p[0] + half;
+          min[2] = p[2] - half; max[2] = p[2] + half;
+          min[1] = p[1] - p[4]; max[1] = p[1];
+          for (const face of [0, 1, 3, 4, 5]) addFace(face, p[5]);
+        }
+        const geometry = builder.build();
+        const colors = geometry.attributes.color.array;
+        shades.forEach((shade, quad) => {
+          scratchColor.copy(stone).multiplyScalar(shade);
+          for (let vertex = quad * 4; vertex < quad * 4 + 4; vertex++) scratchColor.toArray(colors, vertex * 3);
         });
+        islandRockMaterial.vertexColors = true;
+        const mesh = new THREE.Mesh(geometry, islandRockMaterial);
         mesh.receiveShadow = true;
         scene.add(mesh);
         undersideMeshes.push(mesh);
