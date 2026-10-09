@@ -264,11 +264,8 @@ button { border-radius: 0; }
    Psychedelic mode
    ========================================================================== */
 
-/* Panels get a bright yellow outline with a violet halo; titles and links
-   turn yellow, body text stays near-white on the dark glass. */
-body.psychedelic .glass {
-  box-shadow: 0 0 0 1px var(--psy-yellow), 0 0 18px rgba(255, 233, 74, 0.25);
-}
+/* Titles and links turn yellow; body text stays near-white on the dark glass.
+   Panel outlines come from the yellow --glass-border token. */
 body.psychedelic a,
 body.psychedelic button,
 body.psychedelic .projects-title,

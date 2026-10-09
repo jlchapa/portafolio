@@ -2425,16 +2425,18 @@
     const timerBar = document.getElementById('psy-timer-bar');
     const timerLabel = document.getElementById('psy-timer-label');
 
-    // Stars: points spread over the upper sky that twinkle, each with its own
-    // size and rhythm. They ride along with the sky dome.
-    const STAR_COUNT = 700;
+    // Stars: points spread over the whole sky sphere (below the horizon too, so
+    // they show when the camera looks down past the island) that twinkle, each
+    // with its own size and rhythm. They ride along with the sky dome.
+    const STAR_COUNT = 1400;
     const starPositions = new Float32Array(STAR_COUNT * 3);
     const starPhases = new Float32Array(STAR_COUNT);
     const starSizes = new Float32Array(STAR_COUNT);
     {
       const random = seededRandom(4242);
       for (let i = 0; i < STAR_COUNT; i++) {
-        const y = 0.02 + Math.pow(random(), 2.2) * 0.98; // denser near the horizon
+        const side = random() < 0.5 ? -1 : 1;
+        const y = side * Math.pow(random(), 2.2); // denser near the horizon
         const angle = random() * Math.PI * 2;
         const ring = Math.sqrt(1 - y * y);
         starPositions[i * 3] = Math.cos(angle) * ring * 470;
