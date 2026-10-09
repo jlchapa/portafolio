@@ -7,7 +7,7 @@ This is a static personal portfolio. Keep it vanilla: plain HTML, CSS, and JavaS
 index.html            overlay content: header, About panel, project rows, footer links
 styles.css            design tokens, glass panels, layout, responsive styles
 scene.js              three.js Tulum diorama (tree, birds, leaves, house, cenote, scatter)
-images/*.svg          legacy project cover art (unused by the current page)
+images/               project screenshots (not used by the current page)
 README.md             user-facing project notes
 
 There is no build step, package manager, linter, test suite, or CI.
@@ -17,6 +17,7 @@ There is no build step, package manager, linter, test suite, or CI.
 - Do not add analytics, or trackers.
 - Do not introduce React, Tailwind, npm, TypeScript, ES modules, or a bundler.
 - three.js is loaded as the global `THREE` from the r159 `three.min.js` CDN build (the last non-module build) with an SRI hash. Update the hash if the version changes.
+- Use system fonts only (`--font-sans`, `--font-mono`); do not add web font requests.
 - Prefer existing CSS tokens in `:root` before adding new colors, spacing, or typography values.
 - Keep scripts loaded with plain `<script src="..."></script>`.
 
@@ -25,7 +26,7 @@ There is no build step, package manager, linter, test suite, or CI.
 | Task | File |
 | --- | --- |
 | Change copy, links, or sections | `index.html` |
-| Add or edit a project card | `index.html` and optionally `images/*.svg` |
+| Add or edit a project row | `.projects` in `index.html` |
 | Adjust layout, colors, type, or breakpoints | `styles.css` |
 | Tune the 3D scene (tree, birds, colors, camera) | `CONFIG` at the top of `scene.js` |
 | Update project instructions | `README.md` or `CLAUDE.md` |
