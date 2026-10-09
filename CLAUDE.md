@@ -33,7 +33,11 @@ There is no build step, package manager, linter, test suite, or CI.
 
 ## Scene Notes
 
-`scene.js` renders into `#scene`. All tweakable values live in the `CONFIG` object at the top of the file. The scene re-reads `CONFIG` every frame, so `tulumScene.config.<key> = value` in the browser console previews changes live.
+`scene.js` renders into `#scene`. All tweakable values live in the `CONFIG` object at the top of the file. The scene re-reads `CONFIG` every frame, so `tulumScene.config.<key> = value` in the browser console previews changes live, and `tulumScene.startPsychedelic()` starts psychedelic mode.
+
+- The default horizon is a floating rock: an irregular island outline (`islandRadius()`) with voxel stone columns underneath, shaped by a grayscale depth map. `onIsland()` keeps rocks, bushes and the capybara on it.
+- The capybara wanders, avoiding obstacles, and walks to the cenote to drink. Clicking the diamond above it starts psychedelic mode (night palette, stars, boid radius rings, a countdown bar whose tag returns to day).
+- The pointer pushes branches and scares birds; vertical movement tilts the camera, and the mouse wheel zooms a little.
 
 Without `THREE` or WebGL2 the CSS gradient on `.scene` stays as the backdrop. The overlay panels sit on top of the canvas; `showOverlay` in `CONFIG` shifts the camera framing to leave room for them.
 
