@@ -124,7 +124,7 @@
     mouseParallax: 2,       // how much the camera follows the pointer
 
     // Horizon
-    horizonStyle: 'Diorama block', // Soft fog | Ground haze | Clear | Diorama block
+    horizonStyle: 'Floating rock', // Soft fog | Ground haze | Clear | Diorama block | Floating rock
     fogDistance: 1,
     dioramaWidth: 165,
     dioramaDepth: 150,
@@ -142,7 +142,32 @@
     bushCount: 16,
     bushSize: 0.85,
     bushColor: '#7aa63a',
-    bushTipColor: '#b9d957'
+    bushTipColor: '#b9d957',
+
+    // Ground texture: patches of darker sand, pebbles and dry grass
+    groundTexture: 1,       // 0 = flat color, 1 = full texture
+
+    // Floating rock under the island (horizonStyle 'Floating rock'), shaped
+    // by a grayscale depth map
+    islandDepth: 46,        // deepest point below the ground, in voxels
+    islandRoughness: 1,     // 0-2, how uneven the outline and underside are
+    islandSpikes: 14,       // chunky spikes hanging from the bottom
+    islandColor: '#a88c62',
+    islandSeed: 3,          // change to reshape the rock
+
+    // Vines hanging from the island's edge and the rock spikes
+    showVines: true,
+    vineDensity: 0.35,      // 0-1
+    vineLength: 9,
+
+    // Capybara
+    showCapybara: true,
+    capybaraSize: 1.1,
+    capybaraSpeed: 2.4,
+    capybaraColor: '#9b6b3f',
+
+    // Psychedelic mode, started by clicking the diamond above the capybara
+    psychedelicDuration: 30 // seconds
   };
 
   window.tulumScene = { config: CONFIG };
@@ -189,6 +214,36 @@
       };
     }
 
+    // Smooth random noise on a width x height grid: random values at control
+    // points every `cellSize` cells, blended smoothly in between. With `wrap`
+    // the noise tiles seamlessly (width and height must then be multiples of
+    // cellSize). Returns a Float32Array of values in 0..1, row by row.
+    function valueNoise(width, height, cellSize, random, wrap) {
+      const cols = wrap ? width / cellSize : Math.ceil(width / cellSize) + 2;
+      const rows = wrap ? height / cellSize : Math.ceil(height / cellSize) + 2;
+      const grid = new Float32Array(cols * rows);
+      for (let i = 0; i < grid.length; i++) grid[i] = random();
+      const at = (cx, cy) => grid[(cy % rows) * cols + (cx % cols)];
+      const smooth = t => t * t * (3 - 2 * t);
+      const lerp = (a, b, t) => a + (b - a) * t;
+
+      const out = new Float32Array(width * height);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const gx = x / cellSize;
+          const gy = y / cellSize;
+          const x0 = Math.floor(gx);
+          const y0 = Math.floor(gy);
+          const tx = smooth(gx - x0);
+          const ty = smooth(gy - y0);
+          const top = lerp(at(x0, y0), at(x0 + 1, y0), tx);
+          const bottom = lerp(at(x0, y0 + 1), at(x0 + 1, y0 + 1), tx);
+          out[y * width + x] = lerp(top, bottom, ty);
+        }
+      }
+      return out;
+    }
+
     // ------------------------------------------------------------------------
     // Renderer, camera and lights
     // ------------------------------------------------------------------------
@@ -205,7 +260,9 @@
     renderer.setClearColor(clearColor, 1);
     scene.fog = new THREE.Fog(clearColor.clone(), 220, 420);
 
-    const camera = new THREE.PerspectiveCamera(32, host.clientWidth / host.clientHeight, 0.5, 800);
+    // A near plane of 1.5 (not smaller) keeps enough depth precision at a
+    // distance to separate the sand from the rock just under it.
+    const camera = new THREE.PerspectiveCamera(32, host.clientWidth / host.clientHeight, 1.5, 800);
     const cameraTarget = new Vec3(); // point the camera looks at, set by fitCamera()
     let cameraDistance = 150;        // distance that frames the whole scene, set by fitCamera()
 
@@ -244,6 +301,62 @@
     groundSurface.position.y = -0.53;
     scene.add(groundSurface);
 
+    // Sand texture for the ground. Each texel is a color multiplier on top of
+    // CONFIG.groundColor: soft patches of darker, damper sand, scattered
+    // pebbles and a few tufts of dry grass. One texel covers one world unit,
+    // so the pattern lines up with the voxels, and it tiles across the ground
+    // (ShapeGeometry uses world coordinates as texture coordinates).
+    const SAND_TEXTURE_SIZE = 256;
+    const SAND_BRIGHTNESS = 0.9; // average texel value, compensated in syncConfig()
+
+    // Builds the sand texture. strength 0 gives a flat color, 1 the full pattern.
+    function makeSandTexture(strength) {
+      const N = SAND_TEXTURE_SIZE;
+      const random = seededRandom(77);
+      const patches = valueNoise(N, N, 32, random, true);
+      const detail = valueNoise(N, N, 8, random, true);
+      const grass = valueNoise(N, N, 16, random, true);
+      const data = new Uint8Array(N * N * 4);
+
+      for (let i = 0; i < N * N; i++) {
+        const shade = SAND_BRIGHTNESS + (patches[i] - 0.5) * 0.16 + (detail[i] - 0.5) * 0.08 + (random() - 0.5) * 0.02;
+        let r = shade;
+        let g = shade;
+        let b = shade;
+        if (patches[i] < 0.32) {
+          // Damp sand: darker and warmer.
+          r *= 0.93;
+          g *= 0.9;
+          b *= 0.84;
+        }
+        if (grass[i] > 0.68 && random() < 0.45) {
+          // Dry grass tufts.
+          r *= 0.78;
+          g *= 0.92;
+          b *= 0.55;
+        } else if (random() < 0.012) {
+          // Pebble.
+          r = g = b = 0.72;
+        }
+        // Blend towards the average brightness for weaker textures.
+        const mix = v => SAND_BRIGHTNESS + (v - SAND_BRIGHTNESS) * strength;
+        data[i * 4] = Math.round(Math.min(1, mix(r)) * 255);
+        data[i * 4 + 1] = Math.round(Math.min(1, mix(g)) * 255);
+        data[i * 4 + 2] = Math.round(Math.min(1, mix(b)) * 255);
+        data[i * 4 + 3] = 255;
+      }
+
+      const texture = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.generateMipmaps = true;
+      texture.repeat.set(1 / N, 1 / N);
+      texture.offset.set(0.5 / N, 0.5 / N); // texel centers on voxel centers
+      texture.needsUpdate = true;
+      return texture;
+    }
+
     // The sides of the floating "diorama block" under the sand: an open,
     // four-sided cylinder rotated so its faces line up with the axes.
     const plinth = new THREE.Mesh(
@@ -255,8 +368,35 @@
     scene.add(plinth);
 
     // Current horizon settings. centerX follows the middle of the scene so the
-    // diorama block stays centered under the tree, house and cenote.
-    const horizon = { mode: 'Ground haze', width: 220, depth: 130, thickness: 18, centerX: 0 };
+    // island stays centered under the tree, house and cenote.
+    const horizon = { mode: 'Ground haze', width: 220, depth: 130, thickness: 18, centerX: 0, roughness: 1, seed: 3 };
+
+    // Whether the ground is a floating island (a box or a rock) rather than
+    // an endless plain.
+    function isIsland() {
+      return horizon.mode === 'Diorama block' || horizon.mode === 'Floating rock';
+    }
+
+    // Distance from the island's center to the edge of the floating rock in
+    // the direction of `angle`: a rounded rectangle (superellipse) with a few
+    // slow wobbles so the rim looks natural rather than drawn with a ruler.
+    function islandRadius(angle) {
+      const a = horizon.width / 2;
+      const b = horizon.depth / 2;
+      const n = 2.6; // 2 = ellipse, higher = squarer
+      const base = Math.pow(Math.pow(Math.abs(Math.cos(angle)) / a, n) + Math.pow(Math.abs(Math.sin(angle)) / b, n), -1 / n);
+      const p = horizon.seed * 1.7;
+      const wobble = 0.05 * (1 + Math.sin(3 * angle + p)) + 0.03 * (1 + Math.sin(5 * angle + p * 2.3)) + 0.015 * (1 + Math.sin(11 * angle + p * 3.1));
+      return base * (1 - wobble * horizon.roughness);
+    }
+
+    // Whether (x, z) is on the island, at least `margin` in from its edge.
+    // Without a floating rock this is the rectangle the island covers.
+    function onIsland(x, z, margin) {
+      const dx = x - horizon.centerX;
+      if (horizon.mode === 'Floating rock') return Math.hypot(dx, z) < islandRadius(Math.atan2(z, dx)) - margin;
+      return Math.abs(dx) < horizon.width / 2 - margin && Math.abs(z) < horizon.depth / 2 - margin;
+    }
 
     // Sky dome: a big inside-out sphere with a vertical gradient. It follows
     // the camera so it never gets closer or further away.
@@ -902,14 +1042,18 @@
       const centerX = Math.round((minX + maxX) / 2);
       if (centerX !== horizon.centerX) {
         horizon.centerX = centerX;
-        if (horizon.mode === 'Diorama block') buildGroundShapes();
+        if (isIsland()) buildGroundShapes();
       }
 
+      // Vertically: from the top of the tree down past the island, far
+      // enough to show the rock hanging below it.
+      const bottom = -undersideDepth * 0.6;
+      const spanY = tree.maxY - bottom;
       const spanX = (maxX - minX) * (narrow ? 1.55 : 1.2);
-      cameraDistance = Math.max(tree.maxY * 1.6 / (2 * tanHalfFov), spanX / (2 * tanHalfFov * camera.aspect));
+      cameraDistance = Math.max(spanY * 1.35 / (2 * tanHalfFov), spanX / (2 * tanHalfFov * camera.aspect));
       cameraTarget.set(
         (minX + maxX) / 2 + (narrow ? -cameraDistance * tanHalfFov * camera.aspect * 0.22 : 0),
-        tree.maxY * 0.52,
+        bottom + spanY * 0.52,
         0
       );
     }
@@ -1056,6 +1200,12 @@
       group.add(keel, body, leftWing, rightWing);
       scene.add(group);
 
+      // Psychedelic mode overlay: separation and neighbor radius rings.
+      const separationRing = new THREE.LineLoop(ringGeometry, separationRingMaterial);
+      const neighborRing = new THREE.LineLoop(ringGeometry, neighborRingMaterial);
+      separationRing.visible = neighborRing.visible = false;
+      scene.add(separationRing, neighborRing);
+
       const bird = {
         group, keel, body, leftWing, rightWing,
         flock: i % 3,
@@ -1069,7 +1219,9 @@
         flapPhase: Math.random() * 6,
         yaw: 0,
         targetYaw: 0,
-        peck: 0            // seconds left of a pecking animation
+        peck: 0,           // seconds left of a pecking animation
+        separationRing,
+        neighborRing
       };
       applyBodyShape(bird, Math.max(0, birdShape));
       return bird;
@@ -1121,7 +1273,7 @@
       while (birds.length > count) {
         const bird = birds.pop();
         if (bird.perch) bird.perch.bird = null;
-        scene.remove(bird.group);
+        scene.remove(bird.group, bird.separationRing, bird.neighborRing);
       }
       while (birds.length < count) {
         const bird = makeBird(birds.length);
@@ -1233,7 +1385,7 @@
     // Cloud
     // ------------------------------------------------------------------------
     let cloudMesh = null;
-    let cloudX = -60; // drifts right, then wraps around
+    let cloudX = -60; // offset from the diorama's center; drifts right, then wraps around
 
     // Builds a voxel cloud from a few overlapping ellipsoid blobs.
     function buildCloud(cloud) {
@@ -1303,10 +1455,23 @@
       return Math.hypot(dx, dz) < cenoteRadius(cenote, Math.atan2(dz, dx)) + 0.5;
     }
 
-    // Rebuilds the sand surface and shadow catcher outlines: a rectangle for
-    // the diorama block or a huge disc otherwise, with a hole for the cenote.
+    // Rebuilds the sand surface and shadow catcher outlines: the floating
+    // rock's outline, a rectangle for the diorama block, or a huge disc for
+    // the open plains, with a hole for the cenote.
     function buildGroundShapes() {
-      const isBlock = horizon.mode === 'Diorama block';
+      const rockOutline = () => {
+        const shape = new THREE.Shape();
+        for (let i = 0; i < 180; i++) {
+          const angle = i / 180 * Math.PI * 2;
+          const radius = islandRadius(angle);
+          const px = horizon.centerX + Math.cos(angle) * radius;
+          const py = -Math.sin(angle) * radius; // world z maps to -y, see below
+          if (i) shape.lineTo(px, py);
+          else shape.moveTo(px, py);
+        }
+        shape.closePath();
+        return shape;
+      };
       const rectangle = (x0, x1, y0, y1) => {
         const shape = new THREE.Shape();
         shape.moveTo(x0, y0);
@@ -1319,7 +1484,10 @@
 
       let surfaceShape;
       let shadowShape;
-      if (isBlock) {
+      if (horizon.mode === 'Floating rock') {
+        surfaceShape = rockOutline();
+        shadowShape = rockOutline();
+      } else if (horizon.mode === 'Diorama block') {
         const x0 = horizon.centerX - horizon.width / 2;
         const x1 = horizon.centerX + horizon.width / 2;
         surfaceShape = rectangle(x0, x1, -horizon.depth / 2, horizon.depth / 2);
@@ -1457,6 +1625,7 @@
     // ------------------------------------------------------------------------
     let rockMesh = null;
     let bushMesh = null;
+    let scatterObstacles = []; // [x, z, radius] of each rock and bush, for the capybara
 
     // Scatters rocks and bushes across the ground, keeping clear of the
     // tree, the house, the cenote and each other.
@@ -1477,6 +1646,7 @@
 
       // Whether a circle of radius r at (x, z) is clear of everything else.
       const isFree = (x, z, r) => {
+        if (!onIsland(x, z, r + 2)) return false;
         if (Math.hypot(x, z) < 8 + r) return false; // tree
         if (house.on &&
             x > house.x - (house.width / 2 + 8) * house.scale - r && x < house.x + (house.width / 2 + 3) * house.scale + r &&
@@ -1585,6 +1755,848 @@
       };
       rockMesh = makeMesh(rockCells);
       bushMesh = makeMesh(bushCells);
+      scatterObstacles = placed;
+    }
+
+    // ------------------------------------------------------------------------
+    // Underside of the island: the floating rock and hanging vines
+    // ------------------------------------------------------------------------
+    let undersideMeshes = [];
+    let undersideDepth = 0; // how far below the ground the underside reaches
+
+    // Stone for the floating rock: Lambert shading with horizontal strata.
+    // Each 2.5-unit band of height gets its own brightness, and the stone
+    // darkens further down, so the voxel columns read as layered rock.
+    const islandRockMaterial = new THREE.MeshLambertMaterial();
+    islandRockMaterial.onBeforeCompile = function (shader) {
+      shader.vertexShader = 'varying float vRockY;\n' + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+        vec4 rockWorld = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          rockWorld = instanceMatrix * rockWorld;
+        #endif
+        vRockY = (modelMatrix * rockWorld).y;`);
+      shader.fragmentShader = 'varying float vRockY;\n' + shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        float band = fract(sin(floor(vRockY / 2.5) * 12.9898) * 43758.5453);
+        diffuseColor.rgb *= (0.84 + 0.18 * band) * mix(1.0, 0.6, clamp(-vRockY / 60.0, 0.0, 1.0));`);
+    };
+    islandRockMaterial.customProgramCacheKey = function () { return 'island-rock'; };
+
+    // Builds the grayscale depth map for the floating rock: a 2D matrix with
+    // one gray value (0 = black .. 1 = white) per ground cell, the same size
+    // as the island's ground. Brighter cells hang deeper and are drawn in a
+    // lighter stone. Broad noise makes big lumps, fine noise roughens them.
+    function buildIslandDepthMap(width, depth, seed) {
+      const random = seededRandom(seed);
+      const broad = valueNoise(width, depth, 12, random, false);
+      const fine = valueNoise(width, depth, 4, random, false);
+      const gray = new Float32Array(width * depth);
+      for (let k = 0; k < gray.length; k++) gray[k] = Math.min(1, broad[k] * 0.7 + fine[k] * 0.4);
+      return { width, depth, gray };
+    }
+
+    // Builds everything under the island. For the floating rock: one stone
+    // column per ground cell, short at the rim and deepest towards the
+    // middle like an upside-down mountain, made uneven by the depth map, with
+    // chunky stepped spikes hanging below. For the diorama block: a bottom
+    // cap. Both get vines hanging from the edge.
+    function buildUnderside(settings) {
+      for (const mesh of undersideMeshes) {
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        if (mesh.material !== islandRockMaterial) mesh.material.dispose();
+      }
+      undersideMeshes = [];
+      undersideDepth = 0;
+      if (settings.mode !== 'Floating rock' && settings.mode !== 'Diorama block') return;
+
+      const width = Math.round(horizon.width);
+      const depth = Math.round(horizon.depth);
+      const left = horizon.centerX - width / 2;
+      const random = seededRandom(900 + settings.seed * 37);
+      const stone = new THREE.Color(settings.color);
+      const pieces = []; // [x, topY, z, width, height, shade]
+      const spikeTips = []; // [x, y, z], where vines can hang from
+
+      if (settings.mode === 'Diorama block') {
+        // The block's open bottom, in case the camera dips below it.
+        const bottomY = -0.53 - horizon.thickness;
+        const cap = new THREE.Mesh(
+          new THREE.PlaneGeometry(width, depth).rotateX(Math.PI / 2),
+          new THREE.MeshLambertMaterial({ color: new THREE.Color(settings.groundColor).multiplyScalar(0.6) })
+        );
+        cap.position.set(horizon.centerX, bottomY, 0);
+        scene.add(cap);
+        undersideMeshes.push(cap);
+        undersideDepth = horizon.thickness;
+      } else {
+        const map = buildIslandDepthMap(width, depth, 500 + settings.seed * 131);
+        const columnBottom = new Float32Array(width * depth); // 0 = outside the island
+        const topY = -1; // just under the sand surface
+        // Under the cenote the rock starts below its floor, so it never
+        // covers the water.
+        const cenoteBottom = cenote ? -Math.max(4, Math.round(settings.cenoteDepth)) - 0.6 : 0;
+        for (let j = 0; j < depth; j++) {
+          for (let i = 0; i < width; i++) {
+            const x = left + i + 0.5;
+            const z = -depth / 2 + j + 0.5;
+            const dx = x - horizon.centerX;
+            const edge = islandRadius(Math.atan2(z, dx));
+            const r = Math.hypot(dx, z);
+            if (r > edge + 0.3) continue;
+            let top = topY;
+            if (cenote) {
+              const cx = x - cenote.x;
+              const cz = z - cenote.z;
+              if (Math.hypot(cx, cz) < cenoteRadius(cenote, Math.atan2(cz, cx)) + 4) top = cenoteBottom;
+            }
+            const gray = map.gray[j * width + i];
+            // Fraction of the way from the middle (0) to the rim (1).
+            const s = Math.min(1, r / edge);
+            const profile = Math.pow(1 - s * s, 0.75);
+            const rim = 2 + gray * 4 * settings.roughness;
+            const lumpiness = Math.max(0.3, 1 - 0.5 * settings.roughness * (1 - gray));
+            const bottom = topY - Math.max(1, Math.round(rim + (settings.maxDepth - rim) * profile * lumpiness));
+            if (bottom >= top) continue; // fully above the cenote's floor
+            columnBottom[j * width + i] = bottom;
+            pieces.push([x, top, z, 1, top - bottom, 0.82 + gray * 0.28]);
+            undersideDepth = Math.max(undersideDepth, -bottom);
+          }
+        }
+
+        // Spikes: stepped cones, 3-5 voxels wide, hanging from deep columns.
+        for (let k = 0, tries = 0; k < settings.spikes && tries < settings.spikes * 20; tries++) {
+          const i = Math.floor(random() * width);
+          const j = Math.floor(random() * depth);
+          const bottom = columnBottom[j * width + i];
+          if (-bottom < settings.maxDepth * 0.35) continue;
+          k++;
+          const x = left + i + 0.5;
+          const z = -depth / 2 + j + 0.5;
+          const baseWidth = 3 + Math.floor(random() * 3);
+          const levels = 3 + Math.floor(random() * 6);
+          let y = bottom;
+          for (let level = 0; level < levels; level++) {
+            const w = Math.max(1, Math.round(baseWidth * (1 - level / levels)));
+            pieces.push([x, y, z, w, 2, 0.75 + random() * 0.2]);
+            y -= 2;
+          }
+          spikeTips.push([x, y, z]);
+          undersideDepth = Math.max(undersideDepth, -y);
+        }
+      }
+
+      // Vines: chains of half-size voxels with the odd leaf sticking out.
+      const vineVoxels = []; // [x, y, z, color, shade]
+      function addVine(x, y, z, length, alongX) {
+        const steps = Math.round(length * 2);
+        let px = x;
+        let pz = z;
+        for (let k = 0; k < steps; k++) {
+          if (random() < 0.2) {
+            const nudge = (random() - 0.5) * 0.5;
+            if (alongX) px += nudge;
+            else pz += nudge;
+          }
+          const color = random() < 0.25 ? palette.tip : palette.leaf;
+          vineVoxels.push([px, y - k * 0.5, pz, color, 0.85 + random() * 0.2]);
+          if (k % 3 === 2 && random() < 0.6) {
+            const side = random() < 0.5 ? -0.5 : 0.5;
+            vineVoxels.push([px + (alongX ? side : 0), y - k * 0.5, pz + (alongX ? 0 : side), palette.leaf, 0.9 + random() * 0.15]);
+          }
+        }
+      }
+
+      if (settings.vinesOn) {
+        const chance = settings.vineDensity * 0.5;
+        const vineLength = () => settings.vineLength * (0.4 + random() * 0.6);
+        const top = -0.6;
+        if (settings.mode === 'Floating rock') {
+          // Roughly one chance per unit of rim.
+          const samples = Math.round(Math.PI * (width + depth));
+          for (let i = 0; i < samples; i++) {
+            const angle = i / samples * Math.PI * 2;
+            const radius = islandRadius(angle) + 0.3;
+            const facesFrontOrBack = Math.abs(Math.sin(angle)) > Math.abs(Math.cos(angle));
+            if (random() < chance) addVine(horizon.centerX + Math.cos(angle) * radius, top, Math.sin(angle) * radius, vineLength(), facesFrontOrBack);
+          }
+        } else {
+          for (let i = 0; i < width; i++) {
+            const x = left + i + 0.5;
+            if (random() < chance) addVine(x, top, depth / 2 + 0.3, vineLength(), true);   // front
+            if (random() < chance) addVine(x, top, -depth / 2 - 0.3, vineLength(), true);  // back
+          }
+          for (let j = 0; j < depth; j++) {
+            const z = -depth / 2 + j + 0.5;
+            if (random() < chance) addVine(left - 0.3, top, z, vineLength(), false);         // left
+            if (random() < chance) addVine(left + width + 0.3, top, z, vineLength(), false); // right
+          }
+        }
+        for (const [x, y, z] of spikeTips) {
+          if (random() < settings.vineDensity) addVine(x, y, z, 2 + random() * 4, random() < 0.5);
+        }
+      }
+
+      const matrix = new THREE.Matrix4();
+      const position = new Vec3();
+      const scale = new Vec3();
+      const noRotation = new Quat();
+
+      if (pieces.length) {
+        const mesh = new THREE.InstancedMesh(cubeGeometry.clone(), islandRockMaterial, pieces.length);
+        pieces.forEach((p, i) => {
+          position.set(p[0], p[1] - p[4] / 2, p[2]);
+          scale.set(p[3], p[4], p[3]);
+          mesh.setMatrixAt(i, matrix.compose(position, noRotation, scale));
+          mesh.setColorAt(i, scratchColor.copy(stone).multiplyScalar(p[5]));
+        });
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        undersideMeshes.push(mesh);
+      }
+
+      if (vineVoxels.length) {
+        const mesh = new THREE.InstancedMesh(cubeGeometry.clone(), new THREE.MeshLambertMaterial(), vineVoxels.length);
+        scale.set(0.5, 0.5, 0.5);
+        vineVoxels.forEach((v, i) => {
+          position.set(v[0], v[1], v[2]);
+          mesh.setMatrixAt(i, matrix.compose(position, noRotation, scale));
+          mesh.setColorAt(i, scratchColor.copy(v[3]).multiplyScalar(v[4]));
+        });
+        mesh.castShadow = true;
+        scene.add(mesh);
+        undersideMeshes.push(mesh);
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // Capybara
+    //
+    // A small blocky capybara wanders around the island, keeping clear of the
+    // tree, the house, the cenote, rocks and bushes. Every few walks it gets
+    // thirsty, climbs onto the cenote's stone rim and drinks.
+    // ------------------------------------------------------------------------
+    const capybara = {
+      group: new THREE.Group(), // at the feet; faces +z when heading is 0
+      model: new THREE.Group(), // tilts forward while drinking
+      head: new THREE.Group(),  // pivots at the neck
+      legs: [],                 // hip pivots: front pair first, then back
+      parts: [],                // meshes and materials, for disposal
+      position: new Vec3(),
+      heading: 0,
+      state: 'idle',            // idle | walking | drinking
+      target: new Vec3(),
+      goingToDrink: false,
+      timer: 1,                 // seconds left in the current idle or drink
+      walkTime: 0,              // seconds spent on the current walk
+      walkPhase: 0,             // drives the leg swing
+      stride: 0,                // 0 standing .. 1 walking, eased
+      walksUntilThirsty: 2,
+      headYaw: 0,
+      headYawTarget: 0,
+      sip: 0,                   // 0 head up .. 1 drinking, eased
+      nextRipple: 0,
+      placed: false
+    };
+    capybara.group.add(capybara.model);
+    scene.add(capybara.group);
+
+    // (Re)builds the capybara out of boxes in the given fur color: a barrel
+    // body, a square head with a dark snout, little ears and eyes, and four
+    // legs that pivot at the hip.
+    function buildCapybaraModel(color) {
+      const { model, head, legs } = capybara;
+      for (const part of capybara.parts) part.dispose();
+      capybara.parts = [];
+      model.clear();
+      head.clear();
+      legs.length = 0;
+
+      const fur = new THREE.MeshLambertMaterial({ color });
+      const dark = new THREE.MeshLambertMaterial({ color: new THREE.Color(color).multiplyScalar(0.6) });
+      const black = new THREE.MeshLambertMaterial({ color: '#1d1410' });
+      capybara.parts.push(fur, dark, black);
+      const box = (w, h, d, material, x, y, z, parent) => {
+        const geometry = new THREE.BoxGeometry(w, h, d);
+        capybara.parts.push(geometry);
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(x, y, z);
+        mesh.castShadow = true;
+        parent.add(mesh);
+        return mesh;
+      };
+
+      box(1.9, 1.5, 3.2, fur, 0, 1.55, 0, model);    // body
+      box(1.6, 1.2, 0.3, fur, 0, 1.5, -1.75, model); // rump
+      for (const [x, z] of [[-0.6, 1.0], [0.6, 1.0], [-0.6, -1.0], [0.6, -1.0]]) {
+        const hip = new THREE.Group();
+        hip.position.set(x, 0.95, z);
+        box(0.5, 0.95, 0.5, dark, 0, -0.475, 0, hip);
+        model.add(hip);
+        legs.push(hip);
+      }
+      head.position.set(0, 2.0, 1.5);
+      box(1.3, 1.3, 1.7, fur, 0, 0.15, 0.75, head);      // head
+      box(1.1, 0.8, 0.4, dark, 0, -0.1, 1.75, head);     // snout
+      box(0.15, 0.2, 0.2, black, -0.66, 0.4, 1.0, head); // eyes
+      box(0.15, 0.2, 0.2, black, 0.66, 0.4, 1.0, head);
+      box(0.3, 0.3, 0.2, dark, -0.45, 0.9, 0.2, head);   // ears
+      box(0.3, 0.3, 0.2, dark, 0.45, 0.9, 0.2, head);
+      model.add(head);
+    }
+
+    // Wraps an angle into -π..π.
+    function wrapAngle(angle) {
+      return Math.atan2(Math.sin(angle), Math.cos(angle));
+    }
+
+    // Whether (x, z) is inside the house's footprint (tank included), grown by margin.
+    function insideHouse(x, z, margin) {
+      const h = houseLayout;
+      return h.on &&
+        x > h.x - (h.width / 2 + 8) * h.scale - margin && x < h.x + (h.width / 2 + 3) * h.scale + margin &&
+        z > h.z - 7 * h.scale - margin && z < h.z + 9 * h.scale + margin;
+    }
+
+    // Whether the capybara may stand at (x, z): on the island, away from the
+    // tree and its roots, the house, rocks and bushes. With allowRim it may
+    // stand on the cenote's rim (never over the hole); without, it keeps clear
+    // of the whole cenote.
+    function capybaraCanStand(x, z, allowRim) {
+      if (!onIsland(x, z, 5)) return false;
+      if (Math.hypot(x, z) < 24) return false;
+      if (insideHouse(x, z, 1.5)) return false;
+      if (cenote) {
+        const dx = x - cenote.x;
+        const dz = z - cenote.z;
+        const distance = Math.hypot(dx, dz);
+        if (allowRim ? distance < cenoteRadius(cenote, Math.atan2(dz, dx)) + 0.8 : distance < cenote.radius * 1.2 + 5) return false;
+      }
+      for (const [ox, oz, r] of scatterObstacles) {
+        if (Math.hypot(x - ox, z - oz) < r + 1.8) return false;
+      }
+      return true;
+    }
+
+    // Whether a straight walk from `from` to `to` stays on standable ground.
+    function capybaraPathClear(from, to) {
+      const steps = Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 0.75);
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        if (!capybaraCanStand(from.x + (to.x - from.x) * t, from.z + (to.z - from.z) * t, true)) return false;
+      }
+      return true;
+    }
+
+    // Height of the ground under the capybara: the sand, or one voxel up on
+    // the cenote's stone rim.
+    function capybaraGroundY(x, z) {
+      if (cenote) {
+        const dx = x - cenote.x;
+        const dz = z - cenote.z;
+        const distance = Math.hypot(dx, dz);
+        const rim = cenoteRadius(cenote, Math.atan2(dz, dx));
+        if (distance >= rim - 0.3 && distance < rim + 3.5) return 0.5;
+      }
+      return -0.5;
+    }
+
+    // Picks a reachable drinking spot on the front half of the cenote's rim
+    // (the back has loose rocks), preferring the side the capybara is on.
+    function findDrinkSpot() {
+      if (!cenote) return null;
+      const here = Math.atan2(capybara.position.z - cenote.z, capybara.position.x - cenote.x);
+      let best = null;
+      let bestTurn = Infinity;
+      for (let k = 0; k <= 12; k++) {
+        const angle = Math.PI * (0.15 + 0.7 * k / 12);
+        const radius = cenoteRadius(cenote, angle) + 1.2;
+        const spot = new Vec3(cenote.x + Math.cos(angle) * radius, 0, cenote.z + Math.sin(angle) * radius);
+        const turn = Math.abs(wrapAngle(angle - here));
+        if (turn < bestTurn && capybaraCanStand(spot.x, spot.z, true) && capybaraPathClear(capybara.position, spot)) {
+          best = spot;
+          bestTurn = turn;
+        }
+      }
+      return best;
+    }
+
+    // Drops the capybara on a random free spot of the island.
+    function placeCapybara() {
+      for (let k = 0; k < 200; k++) {
+        const x = horizon.centerX + (Math.random() - 0.5) * (horizon.width - 12);
+        const z = (Math.random() - 0.5) * (horizon.depth - 12);
+        if (capybaraCanStand(x, z, false)) {
+          capybara.position.set(x, -0.5, z);
+          capybara.heading = Math.random() * Math.PI * 2;
+          capybara.placed = true;
+          return;
+        }
+      }
+    }
+
+    // Decides what the capybara does next: go for a drink when thirsty,
+    // otherwise wander to a random reachable spot nearby, or rest a moment.
+    function chooseCapybaraActivity() {
+      const capy = capybara;
+      if (capy.walksUntilThirsty <= 0) {
+        const spot = findDrinkSpot();
+        if (spot) {
+          capy.target.copy(spot);
+          capy.goingToDrink = true;
+          capy.state = 'walking';
+          capy.walkTime = 0;
+          return;
+        }
+      }
+      const candidate = new Vec3();
+      for (let k = 0; k < 30; k++) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance = 10 + Math.random() * 30;
+        candidate.set(capy.position.x + Math.cos(angle) * distance, 0, capy.position.z + Math.sin(angle) * distance);
+        if (capybaraCanStand(candidate.x, candidate.z, false) && capybaraPathClear(capy.position, candidate)) {
+          capy.target.copy(candidate);
+          capy.goingToDrink = false;
+          capy.walksUntilThirsty--;
+          capy.state = 'walking';
+          capy.walkTime = 0;
+          return;
+        }
+      }
+      capy.state = 'idle';
+      capy.timer = 1 + Math.random();
+    }
+
+    // Runs the capybara's behaviour and animation for one frame.
+    function updateCapybara(t, dt) {
+      const capy = capybara;
+      capy.group.visible = CONFIG.showCapybara;
+      if (!CONFIG.showCapybara) return;
+      if (!capy.placed) placeCapybara();
+      if (!capy.placed) return;
+      let moving = false;
+
+      if (capy.state === 'idle') {
+        // Rest and look around.
+        capy.timer -= dt;
+        if (Math.random() < dt * 0.5) capy.headYawTarget = (Math.random() - 0.5) * 1.2;
+        if (capy.timer <= 0) chooseCapybaraActivity();
+      } else if (capy.state === 'walking') {
+        // Turn towards the target (slowing down while turning) and walk.
+        capy.walkTime += dt;
+        capy.headYawTarget = 0;
+        const dx = capy.target.x - capy.position.x;
+        const dz = capy.target.z - capy.position.z;
+        const distance = Math.hypot(dx, dz);
+        if (distance < 0.4 || capy.walkTime > 30) {
+          if (capy.goingToDrink && distance < 0.4 && cenote) {
+            capy.state = 'drinking';
+            capy.timer = 5 + Math.random() * 3;
+            capy.walksUntilThirsty = 2 + Math.floor(Math.random() * 3);
+          } else {
+            capy.state = 'idle';
+            capy.timer = 1.5 + Math.random() * 3;
+          }
+        } else {
+          const turn = wrapAngle(Math.atan2(dx, dz) - capy.heading);
+          capy.heading += THREE.MathUtils.clamp(turn, -2.5 * dt, 2.5 * dt);
+          const speed = CONFIG.capybaraSpeed * (Math.abs(turn) < 0.5 ? 1 : 0.25) * Math.min(1, distance / 1.5 + 0.3);
+          capy.position.x += Math.sin(capy.heading) * speed * dt;
+          capy.position.z += Math.cos(capy.heading) * speed * dt;
+          capy.walkPhase += speed * dt * 3.2;
+          moving = true;
+        }
+      } else if (capy.state === 'drinking') {
+        // Face the water, then drink, making ripples.
+        capy.headYawTarget = 0;
+        if (!cenote) {
+          capy.state = 'idle';
+        } else {
+          const turn = wrapAngle(Math.atan2(cenote.x - capy.position.x, cenote.z - capy.position.z) - capy.heading);
+          capy.heading += THREE.MathUtils.clamp(turn, -2 * dt, 2 * dt);
+          if (Math.abs(turn) < 0.15) {
+            capy.timer -= dt;
+            if (capy.sip > 0.8 && t > capy.nextRipple) {
+              spawnRipple();
+              capy.nextRipple = t + 0.9;
+            }
+          }
+          if (capy.timer <= 0) {
+            capy.state = 'idle';
+            capy.timer = 1 + Math.random() * 2;
+          }
+        }
+      }
+
+      // Animation: swing diagonal leg pairs, bob while walking, lower the
+      // head to drink, and step up onto the rim smoothly.
+      const ease = (value, target, rate) => value + (target - value) * Math.min(1, dt * rate);
+      const drinking = capy.state === 'drinking' && cenote &&
+        Math.abs(wrapAngle(Math.atan2(cenote.x - capy.position.x, cenote.z - capy.position.z) - capy.heading)) < 0.15;
+      capy.stride = ease(capy.stride, moving ? 1 : 0, 6);
+      capy.sip = ease(capy.sip, drinking ? 1 : 0, 3);
+      capy.headYaw = ease(capy.headYaw, capy.headYawTarget, 3);
+      capy.legs.forEach((leg, i) => {
+        const phase = i === 0 || i === 3 ? 0 : Math.PI;
+        leg.rotation.x = Math.sin(capy.walkPhase + phase) * 0.6 * capy.stride;
+      });
+      capy.model.position.y = Math.abs(Math.sin(capy.walkPhase)) * 0.08 * capy.stride + 0.2 * capy.sip;
+      capy.model.rotation.x = 0.22 * capy.sip;
+      capy.head.rotation.x = 0.9 * capy.sip + Math.sin(t * 7) * 0.06 * capy.sip;
+      capy.head.rotation.y = capy.headYaw;
+
+      capy.position.y = ease(capy.position.y, capybaraGroundY(capy.position.x, capy.position.z), 10);
+      capy.group.position.copy(capy.position);
+      capy.group.rotation.y = capy.heading;
+      capy.group.scale.setScalar(CONFIG.capybaraSize);
+    }
+
+    // Ripples on the cenote where the capybara drinks: a small pool of rings
+    // that grow and fade.
+    const RIPPLE_LIFETIME = 1.6;
+    const rippleGeometry = new THREE.RingGeometry(0.8, 1, 32).rotateX(-Math.PI / 2);
+    const ripples = [];
+    for (let i = 0; i < 4; i++) {
+      const mesh = new THREE.Mesh(rippleGeometry, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false }));
+      mesh.visible = false;
+      scene.add(mesh);
+      ripples.push({ mesh, age: RIPPLE_LIFETIME });
+    }
+    let nextRippleSlot = 0;
+    const snoutTip = new Vec3();
+
+    // Starts a ripple on the water just in front of the capybara's snout.
+    function spawnRipple() {
+      const ripple = ripples[nextRippleSlot++ % ripples.length];
+      capybara.head.localToWorld(snoutTip.set(0, -0.1, 2.3));
+      ripple.mesh.position.set(snoutTip.x, cenote.waterY + 0.03, snoutTip.z);
+      ripple.age = 0;
+    }
+
+    function updateRipples(dt) {
+      for (const ripple of ripples) {
+        ripple.age += dt;
+        const life = ripple.age / RIPPLE_LIFETIME;
+        ripple.mesh.visible = life < 1;
+        if (life >= 1) continue;
+        ripple.mesh.scale.setScalar(0.3 + life * 2.5);
+        ripple.mesh.material.opacity = 0.7 * (1 - life);
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // Diamond
+    //
+    // A shining diamond floats above the capybara. Hovering it swaps the
+    // pointer for a big yellow arrow; clicking it starts psychedelic mode.
+    // ------------------------------------------------------------------------
+
+    // Draws a soft round glow, or a four-pointed sparkle, into a texture.
+    function makeSpriteTexture(kind) {
+      const size = 64;
+      const c = size / 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (kind === 'glow') {
+        const gradient = ctx.createRadialGradient(c, c, 0, c, c, c);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        gradient.addColorStop(0.25, 'rgba(160, 240, 255, 0.6)');
+        gradient.addColorStop(1, 'rgba(120, 200, 255, 0)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
+      } else {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(c, 0);
+        ctx.quadraticCurveTo(c, c, size, c);
+        ctx.quadraticCurveTo(c, c, c, size);
+        ctx.quadraticCurveTo(c, c, 0, c);
+        ctx.quadraticCurveTo(c, c, c, 0);
+        ctx.fill();
+      }
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    }
+
+    // A brilliant-cut gem: a flat-topped crown over a pointed pavilion.
+    const gemMaterial = new THREE.MeshPhongMaterial({
+      color: '#d8fbff',
+      emissive: '#4fd2ff',
+      emissiveIntensity: 0.5,
+      specular: 0xffffff,
+      shininess: 140,
+      flatShading: true
+    });
+    const gem = new THREE.Group();
+    const gemCrown = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 1, 0.5, 8), gemMaterial);
+    gemCrown.position.y = 0.25;
+    const gemPavilion = new THREE.Mesh(new THREE.ConeGeometry(1, 1.4, 8).rotateX(Math.PI), gemMaterial);
+    gemPavilion.position.y = -0.7;
+    gem.add(gemCrown, gemPavilion);
+
+    const spriteMaterial = (map, color) => new THREE.SpriteMaterial({
+      map, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false
+    });
+    const diamondGlow = new THREE.Sprite(spriteMaterial(makeSpriteTexture('glow'), '#9feaff'));
+    diamondGlow.scale.setScalar(5);
+    const sparkleTexture = makeSpriteTexture('sparkle');
+    const sparkles = [];
+    for (let i = 0; i < 4; i++) sparkles.push(new THREE.Sprite(spriteMaterial(sparkleTexture, '#ffffff')));
+
+    // Invisible, generous hit area so the small diamond is easy to point at.
+    const diamondHitArea = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 8), new THREE.MeshBasicMaterial({ visible: false }));
+
+    const diamond = new THREE.Group();
+    diamond.add(gem, diamondGlow, diamondHitArea, ...sparkles);
+    diamond.visible = false;
+    scene.add(diamond);
+    let diamondHovered = false;
+
+    // Turns the big yellow pointer on or off (styles.css: .diamond-hover).
+    function setDiamondHover(on) {
+      if (on === diamondHovered) return;
+      diamondHovered = on;
+      document.body.classList.toggle('diamond-hover', on);
+    }
+
+    // Floats the diamond above the capybara, spinning, pulsing and twinkling.
+    // It hides while psychedelic mode is on.
+    function updateDiamond(t, dt) {
+      const show = capybara.group.visible && capybara.placed && !psychedelic.active;
+      diamond.visible = show;
+      if (!show) {
+        setDiamondHover(false);
+        return;
+      }
+      const capy = capybara.group.position;
+      diamond.position.set(capy.x, capy.y + 3.4 * CONFIG.capybaraSize + 2.4 + Math.sin(t * 2) * 0.35, capy.z);
+      const targetScale = diamondHovered ? 2.2 : 1.7;
+      diamond.scale.setScalar(diamond.scale.x + (targetScale - diamond.scale.x) * Math.min(1, dt * 8));
+      gem.rotation.y += dt * 1.4;
+      gemMaterial.emissiveIntensity = 0.45 + 0.25 * Math.sin(t * 3) + (diamondHovered ? 0.4 : 0);
+      diamondGlow.material.opacity = 0.55 + 0.25 * Math.sin(t * 3);
+      sparkles.forEach((sparkle, i) => {
+        const angle = t * 1.3 + i * Math.PI / 2;
+        sparkle.position.set(Math.cos(angle) * 1.6, Math.sin(t * 2 + i) * 0.8 + 0.2, Math.sin(angle) * 1.6);
+        const twinkle = Math.max(0, Math.sin(t * 4 + i * 1.7));
+        sparkle.scale.setScalar(0.3 + twinkle * 0.6);
+        sparkle.material.opacity = twinkle;
+      });
+    }
+
+    // Whether the screen point (clientX, clientY) is on the diamond.
+    function diamondAt(clientX, clientY) {
+      if (!diamond.visible) return false;
+      const rect = host.getBoundingClientRect();
+      const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      return raycaster.intersectObject(diamondHitArea, false).length > 0;
+    }
+
+    // ------------------------------------------------------------------------
+    // Psychedelic mode
+    //
+    // Clicking the diamond turns the scene to night for a while: dark blue and
+    // purple light, twinkling stars, yellow outlines on the overlay, and every
+    // bird takes to the sky showing its flocking radius. A countdown bar at
+    // the top shows the time left; the tag under it ends the mode early.
+    // ------------------------------------------------------------------------
+    const psychedelic = {
+      active: false,
+      endsAt: 0,       // clock time when it ends
+      amount: 0,       // 0 day .. 1 night, faded in and out over FADE seconds
+      fadeFrom: 0,     // amount when the mode last switched
+      switchedAt: -1e9, // clock time of that switch
+      shownSeconds: -1 // last value written to the countdown label
+    };
+    const NIGHT = {
+      skyTop: new THREE.Color('#05031f'),
+      skyHorizon: new THREE.Color('#3b1478'),
+      background: new THREE.Color('#160a38'),
+      ground: new THREE.Color('#3a2a78'),
+      plinth: new THREE.Color('#24165a'),
+      sun: new THREE.Color('#9d8cff'),
+      ambientSky: new THREE.Color('#6a55ff'),
+      ambientGround: new THREE.Color('#1c0a3a'),
+      birdGlow: new THREE.Color('#c9b8ff')
+    };
+    const timerElement = document.getElementById('psy-timer');
+    const timerBar = document.getElementById('psy-timer-bar');
+    const timerLabel = document.getElementById('psy-timer-label');
+
+    // Stars: points spread over the upper sky that twinkle, each with its own
+    // size and rhythm. They ride along with the sky dome.
+    const STAR_COUNT = 700;
+    const starPositions = new Float32Array(STAR_COUNT * 3);
+    const starPhases = new Float32Array(STAR_COUNT);
+    const starSizes = new Float32Array(STAR_COUNT);
+    {
+      const random = seededRandom(4242);
+      for (let i = 0; i < STAR_COUNT; i++) {
+        const y = 0.02 + Math.pow(random(), 2.2) * 0.98; // denser near the horizon
+        const angle = random() * Math.PI * 2;
+        const ring = Math.sqrt(1 - y * y);
+        starPositions[i * 3] = Math.cos(angle) * ring * 470;
+        starPositions[i * 3 + 1] = y * 470;
+        starPositions[i * 3 + 2] = Math.sin(angle) * ring * 470;
+        starPhases[i] = random() * 6.28;
+        starSizes[i] = random() < 0.1 ? 10 + random() * 8 : 3 + random() * 4;
+      }
+    }
+    const starGeometry = new THREE.BufferGeometry();
+    starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    starGeometry.setAttribute('aPhase', new THREE.BufferAttribute(starPhases, 1));
+    starGeometry.setAttribute('aSize', new THREE.BufferAttribute(starSizes, 1));
+    const starMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uOpacity: { value: 0 },
+        uPixelRatio: { value: renderer.getPixelRatio() }
+      },
+      vertexShader: [
+        'attribute float aPhase;',
+        'attribute float aSize;',
+        'uniform float uTime;',
+        'uniform float uPixelRatio;',
+        'varying float vTwinkle;',
+        'void main() {',
+        '  vTwinkle = 0.55 + 0.45 * sin(uTime * (1.5 + aPhase) + aPhase * 10.0);',
+        '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+        '  gl_PointSize = aSize * uPixelRatio * (0.7 + 0.5 * vTwinkle);',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'uniform float uOpacity;',
+        'varying float vTwinkle;',
+        'void main() {',
+        '  vec2 p = gl_PointCoord - 0.5;',
+        '  float core = smoothstep(0.5, 0.0, length(p));',
+        '  float rays = max(0.0, 1.0 - abs(p.x) * 10.0) * max(0.0, 1.0 - abs(p.y) * 2.0)',
+        '             + max(0.0, 1.0 - abs(p.y) * 10.0) * max(0.0, 1.0 - abs(p.x) * 2.0);',
+        '  float alpha = (core * core + rays * 0.6) * vTwinkle * uOpacity;',
+        '  gl_FragColor = vec4(1.0, 0.95, 0.75, alpha);',
+        '}'
+      ].join('\n'),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false
+    });
+    const stars = new THREE.Points(starGeometry, starMaterial);
+    stars.frustumCulled = false;
+    stars.visible = false;
+    sky.add(stars);
+
+    // Boid overlay: two camera-facing rings per bird (separation radius, bold;
+    // neighbor radius, faint).
+    const ringPoints = [];
+    for (let i = 0; i < 64; i++) ringPoints.push(new Vec3(Math.cos(i / 64 * Math.PI * 2), Math.sin(i / 64 * Math.PI * 2), 0));
+    const ringGeometry = new THREE.BufferGeometry().setFromPoints(ringPoints);
+    const ringMaterial = opacity => new THREE.LineBasicMaterial({ color: '#ffe94a', transparent: true, opacity, depthWrite: false, fog: false });
+    const separationRingMaterial = ringMaterial(0);
+    const neighborRingMaterial = ringMaterial(0);
+    let boidOverlayShown = false;
+
+    // Starts psychedelic mode: night palette, overlay styles, countdown, and
+    // every bird leaves its perch.
+    function startPsychedelic() {
+      psychedelic.fadeFrom = psychedelic.amount;
+      psychedelic.switchedAt = clock.elapsedTime;
+      psychedelic.active = true;
+      psychedelic.endsAt = clock.elapsedTime + CONFIG.psychedelicDuration;
+      psychedelic.shownSeconds = -1;
+      setDiamondHover(false);
+      document.body.classList.add('psychedelic');
+      timerBar.setAttribute('aria-valuemax', String(CONFIG.psychedelicDuration));
+      timerElement.hidden = false;
+      for (const bird of birds) {
+        if (bird.state === 'perched') {
+          takeOff(bird, true);
+        } else if (bird.state === 'landing') {
+          if (bird.perch && bird.perch.bird === bird) bird.perch.bird = null;
+          bird.perch = null;
+          bird.state = 'flying';
+        }
+      }
+    }
+
+    window.tulumScene.startPsychedelic = startPsychedelic; // handy from the console
+    timerLabel.addEventListener('click', () => { if (psychedelic.active) stopPsychedelic(); });
+
+    function stopPsychedelic() {
+      psychedelic.fadeFrom = psychedelic.amount;
+      psychedelic.switchedAt = clock.elapsedTime;
+      psychedelic.active = false;
+      document.body.classList.remove('psychedelic');
+      timerElement.hidden = true;
+    }
+
+    // Counts down, eases between day and night, and blends the night palette
+    // into the lights and colors syncConfig() just set from CONFIG.
+    function updatePsychedelic(t) {
+      if (psychedelic.active) {
+        const remaining = Math.max(0, psychedelic.endsAt - t);
+        timerBar.style.transform = 'scaleX(' + remaining / CONFIG.psychedelicDuration + ')';
+        const seconds = Math.ceil(remaining);
+        if (seconds !== psychedelic.shownSeconds) {
+          psychedelic.shownSeconds = seconds;
+          timerLabel.textContent = 'Psychedelic mode · ' + seconds + 's';
+          timerBar.setAttribute('aria-valuenow', String(seconds));
+        }
+        if (remaining <= 0) stopPsychedelic();
+      }
+
+      // Fade by elapsed time rather than frame time, so it takes the same
+      // 1.5 seconds even when frames are slow.
+      const goal = psychedelic.active ? 1 : 0;
+      const progress = Math.min(1, (t - psychedelic.switchedAt) / 1.5);
+      psychedelic.amount = psychedelic.fadeFrom + (goal - psychedelic.fadeFrom) * progress;
+      const a = psychedelic.amount;
+
+      starMaterial.uniforms.uTime.value = t;
+      starMaterial.uniforms.uOpacity.value = a;
+      stars.visible = a > 0.001;
+      ambientLight.color.set(0xffffff).lerp(NIGHT.ambientSky, a);
+      ambientLight.groundColor.set(0xdcdcdc).lerp(NIGHT.ambientGround, a);
+      if (a <= 0) {
+        for (const material of birdMaterials) material.emissive.setRGB(0, 0, 0);
+        return;
+      }
+
+      skyUniforms.uTopColor.value.lerp(NIGHT.skyTop, a);
+      skyUniforms.uHorizonColor.value.lerp(NIGHT.skyHorizon, a);
+      clearColor.lerp(NIGHT.background, a);
+      renderer.setClearColor(clearColor, 1);
+      scene.fog.color.lerp(NIGHT.background, a);
+      groundSurface.material.color.lerp(NIGHT.ground, a);
+      plinth.material.color.lerp(NIGHT.plinth, a);
+      sun.color.lerp(NIGHT.sun, a);
+      sun.intensity += (1.2 - sun.intensity) * a;
+      ambientLight.intensity += (2.2 - ambientLight.intensity) * a;
+      for (const material of birdMaterials) material.emissive.copy(NIGHT.birdGlow).multiplyScalar(a);
+    }
+
+    // Keeps each bird's rings centered on it and facing the camera. They
+    // fade in and out with psychedelic.amount.
+    function updateBoidOverlay() {
+      const a = psychedelic.amount;
+      const visible = a > 0.01;
+      if (!visible && !boidOverlayShown) return;
+      boidOverlayShown = visible;
+      separationRingMaterial.opacity = 0.95 * a;
+      neighborRingMaterial.opacity = 0.22 * a;
+      const neighborRadius = CONFIG.neighborRadius;
+      const separationRadius = Math.max(1, neighborRadius * 0.28);
+      for (const bird of birds) {
+        bird.separationRing.visible = bird.neighborRing.visible = visible;
+        if (!visible) continue;
+        for (const [ring, radius] of [[bird.separationRing, separationRadius], [bird.neighborRing, neighborRadius]]) {
+          ring.position.copy(bird.position);
+          ring.quaternion.copy(camera.quaternion);
+          ring.scale.setScalar(radius);
+        }
+      }
     }
 
     // ------------------------------------------------------------------------
@@ -1593,7 +2605,10 @@
     // Called every frame. Each group of settings is serialized and compared
     // with the last version, and only the parts that changed are rebuilt.
     // ------------------------------------------------------------------------
-    const lastApplied = { tree: '', colors: '', birdColor: '', cenote: '', horizon: '', house: '', cloud: '', scatter: '' };
+    const lastApplied = {
+      tree: '', colors: '', birdColor: '', cenote: '', horizon: '', house: '', cloud: '', scatter: '',
+      groundTexture: null, underside: '', capybara: ''
+    };
 
     function syncConfig() {
       const c = CONFIG;
@@ -1667,13 +2682,29 @@
       skyUniforms.uTopColor.value.set(c.skyTopColor);
       skyUniforms.uHorizonColor.value.set(c.skyHorizonColor);
       sky.visible = groundSurface.visible = c.showSky;
-      groundSurface.material.color.set(c.groundColor);
+      // The sand texture darkens the ground by SAND_BRIGHTNESS on average,
+      // so brighten the base color to keep CONFIG.groundColor accurate.
+      const textureStrength = Math.max(0, Math.min(1, c.groundTexture));
+      if (textureStrength !== lastApplied.groundTexture) {
+        lastApplied.groundTexture = textureStrength;
+        if (groundSurface.material.map) groundSurface.material.map.dispose();
+        groundSurface.material.map = makeSandTexture(textureStrength);
+        groundSurface.material.needsUpdate = true;
+      }
+      groundSurface.material.color.set(c.groundColor).multiplyScalar(1 / SAND_BRIGHTNESS);
       clearColor.set(c.showSky ? c.skyHorizonColor : c.backgroundColor);
       renderer.setClearColor(clearColor, 1);
       scene.fog.color.copy(clearColor);
 
       // Horizon and diorama block.
-      const horizonSettings = { mode: c.horizonStyle, width: c.dioramaWidth, depth: c.dioramaDepth, thickness: c.dioramaThickness };
+      const horizonSettings = {
+        mode: c.horizonStyle,
+        width: c.dioramaWidth,
+        depth: c.dioramaDepth,
+        thickness: c.dioramaThickness,
+        roughness: Math.max(0, Math.min(2, c.islandRoughness)),
+        seed: Math.round(c.islandSeed)
+      };
       const horizonKey = JSON.stringify(horizonSettings);
       if (horizonKey !== lastApplied.horizon) {
         lastApplied.horizon = horizonKey;
@@ -1687,6 +2718,35 @@
       plinth.scale.set(horizon.width / Math.SQRT2, horizon.thickness, horizon.depth / Math.SQRT2);
       plinth.position.set(horizon.centerX, -0.53 - horizon.thickness / 2, 0);
       if (horizon.mode === 'Ground haze') scene.fog.color.set(c.groundColor);
+
+      // The floating rock (or block bottom) and vines under the island. They
+      // follow the island, so they rebuild when it moves or resizes, and the
+      // vines use the leaf colors.
+      const undersideSettings = {
+        mode: horizon.mode,
+        width: horizon.width,
+        depth: horizon.depth,
+        thickness: horizon.thickness,
+        centerX: horizon.centerX,
+        roughness: horizon.roughness,
+        seed: horizon.seed,
+        maxDepth: Math.max(4, c.islandDepth),
+        cenote: cenoteKey,
+        cenoteDepth: c.cenoteDepth,
+        spikes: Math.max(0, Math.round(c.islandSpikes)),
+        color: c.islandColor,
+        groundColor: c.groundColor,
+        vinesOn: c.showVines,
+        vineDensity: c.vineDensity,
+        vineLength: c.vineLength,
+        leafColors: colorsKey
+      };
+      const undersideKey = JSON.stringify(undersideSettings);
+      if (undersideKey !== lastApplied.underside) {
+        lastApplied.underside = undersideKey;
+        buildUnderside(undersideSettings);
+        fitCamera();
+      }
 
       if (c.cameraFov !== camera.fov) {
         camera.fov = c.cameraFov;
@@ -1738,8 +2798,8 @@
         buildCloud(cloudSettings);
       }
 
-      // Rocks and bushes avoid the house, cenote and tree, so they are
-      // re-scattered whenever any of those move.
+      // Rocks and bushes avoid the house, cenote and tree and stay on the
+      // island, so they are re-scattered whenever any of those change.
       const scatterSettings = {
         rocksOn: c.showRocks,
         bushesOn: c.showBushes,
@@ -1751,7 +2811,7 @@
         bush: c.bushColor,
         bushTip: c.bushTipColor,
         seed: Math.round(c.scatterSeed),
-        dependsOn: [houseKey, cenoteKey, horizon.centerX, tree.maxR]
+        dependsOn: [houseKey, cenoteKey, horizonKey, horizon.centerX, tree.maxR]
       };
       const scatterKey = JSON.stringify(scatterSettings);
       if (scatterKey !== lastApplied.scatter) {
@@ -1767,6 +2827,11 @@
         setBirdShape(shape);
       }
       birdScale = 1.8 * c.birdSize;
+
+      if (c.capybaraColor !== lastApplied.capybara) {
+        lastApplied.capybara = c.capybaraColor;
+        buildCapybaraModel(c.capybaraColor);
+      }
       if (c.birdCount !== birdCount) {
         birdCount = c.birdCount;
         setBirdCount(c.birdCount);
@@ -1782,6 +2847,7 @@
     // ------------------------------------------------------------------------
     const pointer = {
       over: false,                 // whether the pointer is over the page
+      onCanvas: false,             // whether it is over the scene itself, not a panel
       ndc: new THREE.Vector2(9, 9), // position in normalized device coordinates
       world: new Vec3(),           // where the ray crosses the z = 0 plane
       lastWorld: new Vec3(),
@@ -1798,6 +2864,8 @@
         -((event.clientY - rect.top) / rect.height) * 2 + 1
       );
       pointer.over = true;
+      // Over the overlay panels the pointer is not "in" the scene.
+      pointer.onCanvas = event.target === renderer.domElement;
     }
 
     // relatedTarget is null when the pointer leaves the window entirely.
@@ -1806,6 +2874,11 @@
     }
 
     window.addEventListener('pointermove', onPointerMove);
+
+    // Clicking (or tapping) the diamond starts psychedelic mode.
+    renderer.domElement.addEventListener('click', event => {
+      if (diamondAt(event.clientX, event.clientY)) startPsychedelic();
+    });
     document.addEventListener('pointerout', onPointerOut);
 
     const raycaster = new THREE.Raycaster();
@@ -1827,17 +2900,26 @@
     const cameraLookAt = new Vec3();
     let viewDistance = 150;
 
-    // Orbits the camera around the target with a slow drift and a little
-    // parallax towards the pointer, and sets the fog around that distance.
+    // Mouse-wheel zoom on top of CONFIG.cameraZoom: a multiplier kept within
+    // a small range, eased towards the target so it feels smooth.
+    const wheelZoom = { current: 1, target: 1, min: 0.8, max: 1.7 };
+    renderer.domElement.addEventListener('wheel', event => {
+      wheelZoom.target = THREE.MathUtils.clamp(wheelZoom.target * Math.exp(-event.deltaY * 0.0015), wheelZoom.min, wheelZoom.max);
+    }, { passive: true });
+
+    // Orbits the camera around the target with a slow drift and parallax
+    // towards the pointer (gentle sideways, stronger up and down), applies
+    // the mouse-wheel zoom, and sets the fog around that distance.
     function updateCamera(t, dt) {
       const c = CONFIG;
       const offset = pointer.cameraOffset;
       offset.x += ((pointer.over ? pointer.ndc.x : 0) - offset.x) * dt * 1.5;
       offset.y += ((pointer.over ? pointer.ndc.y : 0) - offset.y) * dt * 1.5;
+      wheelZoom.current += (wheelZoom.target - wheelZoom.current) * Math.min(1, dt * 6);
 
-      viewDistance = cameraDistance / Math.max(0.2, c.cameraZoom);
+      viewDistance = cameraDistance / Math.max(0.2, c.cameraZoom * wheelZoom.current);
       const yaw = toRad(c.cameraYaw) + Math.sin(t * 0.05) * 0.12 * c.cameraDrift + offset.x * 0.12 * c.mouseParallax;
-      const pitch = toRad(c.cameraPitch) - offset.y * 0.05 * c.mouseParallax;
+      const pitch = THREE.MathUtils.clamp(toRad(c.cameraPitch) - offset.y * 0.16 * c.mouseParallax, toRad(-5), toRad(75));
       cameraLookAt.set(cameraTarget.x + c.cameraPanX, cameraTarget.y + c.cameraHeight, cameraTarget.z);
       camera.position.set(
         cameraLookAt.x + Math.sin(yaw) * Math.cos(pitch) * viewDistance,
@@ -1857,20 +2939,26 @@
       }
     }
 
-    // Drifts the cloud across the sky (faster in strong wind), wrapping
-    // around once it leaves the frame, and bobs it gently.
+    // Drifts the cloud across the diorama (faster in strong wind), from its
+    // left edge to its right edge, then starts over on the left. It grows in
+    // as it enters and shrinks away as it leaves, and bobs gently.
     function updateCloud(t, dt) {
       if (!cloudMesh) return;
       const c = CONFIG;
-      const span = cameraDistance * 1.1 + 40 * c.cloudSize;
+      const halfWidth = horizon.width / 2;
       cloudX += c.cloudSpeed * (0.7 + 0.3 * c.windStrength) * dt;
-      if (cloudX > span) cloudX = -span;
-      cloudMesh.position.set(cameraTarget.x + cloudX, tree.maxY + c.cloudHeight + Math.sin(t * 0.3) * 0.8, -35);
+      if (cloudX > halfWidth) cloudX = -halfWidth;
+      const fromEdge = Math.min(1, (halfWidth - Math.abs(cloudX)) / 14);
+      const grow = fromEdge * fromEdge * (3 - 2 * fromEdge);
+      cloudMesh.scale.setScalar(Math.max(0.001, 2 * c.cloudSize * grow));
+      cloudMesh.position.set(horizon.centerX + cloudX, tree.maxY + c.cloudHeight + Math.sin(t * 0.3) * 0.8, -35);
     }
 
     // Updates the pointer ray and how fast the pointer moves through the scene.
     function updatePointer(dt) {
       raycaster.setFromCamera(pointer.ndc, camera);
+      setDiamondHover(pointer.over && pointer.onCanvas && diamond.visible &&
+        raycaster.intersectObject(diamondHitArea, false).length > 0);
       if (pointer.over && ray.intersectPlane(pointerPlane, pointer.world)) {
         if (pointer.hasLastWorld) pointer.velocity.subVectors(pointer.world, pointer.lastWorld).divideScalar(Math.max(dt, 1e-3));
         else pointer.velocity.set(0, 0, 0);
@@ -2099,7 +3187,7 @@
         const minSpeed = Math.min(6, c.maxSpeed * 0.5);
 
         if (bird.state === 'landing') {
-          if (bird.perch.bird !== bird || bird.panic > 0) {
+          if (bird.perch.bird !== bird || bird.panic > 0 || psychedelic.active) {
             // Perch got taken, or the bird got scared: abort.
             bird.state = 'flying';
             if (bird.perch.bird === bird) bird.perch.bird = null;
@@ -2197,8 +3285,9 @@
             }
           }
 
-          // Occasionally head for a perch, keeping at most ~55% of birds perched.
-          if (bird.perchCooldown <= 0 && Math.random() < dt * 0.06 && perchedCount < birds.length * 0.55) {
+          // Occasionally head for a perch, keeping at most ~55% of birds
+          // perched. Nobody perches during psychedelic mode.
+          if (!psychedelic.active && bird.perchCooldown <= 0 && Math.random() < dt * 0.06 && perchedCount < birds.length * 0.55) {
             const perch = findFreePerch();
             if (perch) {
               perch.bird = bird;
@@ -2242,6 +3331,7 @@
       const dt = Math.min(clock.getDelta(), 0.05); // avoid big jumps after a hidden tab
       const t = clock.elapsedTime;
       syncConfig();
+      updatePsychedelic(t); // after syncConfig, which resets the day colors
 
       // Wind blows mostly along +x, with slow gusts and a sideways wander.
       const windStrength = CONFIG.windStrength;
@@ -2256,6 +3346,10 @@
       updateTreeBones(t, dt);
       updateFallingLeaves(t, dt);
       updateBirds(t, dt);
+      updateBoidOverlay();
+      updateCapybara(t, dt);
+      updateRipples(dt);
+      updateDiamond(t, dt);
       renderer.render(scene, camera);
     }
     frame();

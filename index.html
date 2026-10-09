@@ -13,10 +13,24 @@
     <!-- three.js Tulum diorama renders here (scene.js) -->
     <div id="scene" class="scene" aria-hidden="true"></div>
 
+    <!-- Psychedelic mode countdown, shown after clicking the diamond.
+         The tag under the bar ends the mode early. -->
+    <div id="psy-timer" class="psy-timer" hidden>
+      <div id="psy-timer-bar" class="psy-timer-bar" role="progressbar" aria-label="Psychedelic mode time left"
+           aria-valuemin="0" aria-valuemax="30" aria-valuenow="30"></div>
+      <button id="psy-timer-label" class="psy-timer-label" type="button" title="Back to day">Psychedelic mode</button>
+    </div>
+
     <header class="top">
       <div class="top-left">
-        <a class="brand glass" href="https://www.github.com/jlchapa" target="_blank" rel="noopener">jlchapa</a>
+        <!-- Pixel-art wordmark drawn as an SVG, so no font file is needed -->
+        <a class="brand glass" href="https://www.github.com/jlchapa" target="_blank" rel="noopener" aria-label="jlchapa">
+          <svg class="brand-pixels" viewBox="0 0 34 5" aria-hidden="true" shape-rendering="crispEdges">
+            <path fill="currentColor" d="M2 0h2v1h-2zM3 1h1v1h-1zM3 2h1v1h-1zM0 3h1v1h-1zM3 3h1v1h-1zM1 4h2v1h-2zM5 0h1v1h-1zM5 1h1v1h-1zM5 2h1v1h-1zM5 3h1v1h-1zM5 4h4v1h-4zM11 0h3v1h-3zM10 1h1v1h-1zM10 2h1v1h-1zM10 3h1v1h-1zM11 4h3v1h-3zM15 0h1v1h-1zM18 0h1v1h-1zM15 1h1v1h-1zM18 1h1v1h-1zM15 2h4v1h-4zM15 3h1v1h-1zM18 3h1v1h-1zM15 4h1v1h-1zM18 4h1v1h-1zM21 0h2v1h-2zM20 1h1v1h-1zM23 1h1v1h-1zM20 2h4v1h-4zM20 3h1v1h-1zM23 3h1v1h-1zM20 4h1v1h-1zM23 4h1v1h-1zM25 0h3v1h-3zM25 1h1v1h-1zM28 1h1v1h-1zM25 2h3v1h-3zM25 3h1v1h-1zM25 4h1v1h-1zM31 0h2v1h-2zM30 1h1v1h-1zM33 1h1v1h-1zM30 2h4v1h-4zM30 3h1v1h-1zM33 3h1v1h-1zM30 4h1v1h-1zM33 4h1v1h-1z"/>
+          </svg>
+        </a>
         <div id="about" class="about glass" hidden>
+          <button id="about-close" class="panel-button about-close" type="button" aria-label="Close about">×</button>
           <p>I build small, opinionated tools for myself, then share them online in case they are useful for someone else. I'm interested in software that respects our data, uses free technologies and runs locally.</p>
           <dl class="about-facts">
             <dt>Stack</dt><dd>Vanilla JS, HTML, CSS, TS</dd>
@@ -32,22 +46,27 @@
     </header>
 
     <section class="projects glass" aria-labelledby="projects-title">
-      <h2 id="projects-title" class="projects-title">Projects</h2>
-      <a class="project" href="https://jlchapa.github.io/investment/" target="_blank" rel="noopener">
-        <span class="project-num">01</span>
-        <span class="project-body"><span class="project-name">Investing</span><span class="project-desc">A calculator and visualizer so you can asses if your capital and investments are enough to make passive income or F.I.R.E.</span></span>
-        <span class="project-arrow">↗</span>
-      </a>
-      <a class="project" href="https://suhuy.com" target="_blank" rel="noopener">
-        <span class="project-num">02</span>
-        <span class="project-body"><span class="project-name">Brain</span><span class="project-desc">A set of daily puzzle games — sequence, digits, and shapes — for a bit of mental exercise. Progress tracked locally on your device.</span></span>
-        <span class="project-arrow">↗</span>
-      </a>
-      <a class="project" href="https://jlchapa.github.io/gym-progress/" target="_blank" rel="noopener">
-        <span class="project-num">03</span>
-        <span class="project-body"><span class="project-name">GymProgress</span><span class="project-desc">A way to track gym progress on device. Snap a mirror photo every week then a small model reads the silhouette, posture, and composition trends. Photos never leave your device.</span></span>
-        <span class="project-arrow">↗</span>
-      </a>
+      <div class="projects-head">
+        <h2 id="projects-title" class="projects-title">Projects</h2>
+        <button id="projects-toggle" class="panel-button" type="button" aria-expanded="true" aria-controls="project-list" aria-label="Minimize projects">−</button>
+      </div>
+      <div id="project-list" class="project-list">
+        <a class="project" href="https://jlchapa.github.io/investment/" target="_blank" rel="noopener">
+          <span class="project-num">01</span>
+          <span class="project-body"><span class="project-name">Investing</span><span class="project-desc">A calculator and visualizer so you can asses if your capital and investments are enough to make passive income or F.I.R.E.</span></span>
+          <span class="project-arrow">↗</span>
+        </a>
+        <a class="project" href="https://suhuy.com" target="_blank" rel="noopener">
+          <span class="project-num">02</span>
+          <span class="project-body"><span class="project-name">Brain</span><span class="project-desc">A set of daily puzzle games — sequence, digits, and shapes — for a bit of mental exercise. Progress tracked locally on your device.</span></span>
+          <span class="project-arrow">↗</span>
+        </a>
+        <a class="project" href="https://jlchapa.github.io/gym-progress/" target="_blank" rel="noopener">
+          <span class="project-num">03</span>
+          <span class="project-body"><span class="project-name">GymProgress</span><span class="project-desc">A way to track gym progress on device. Snap a mirror photo every week then a small model reads the silhouette, posture, and composition trends. Photos never leave your device.</span></span>
+          <span class="project-arrow">↗</span>
+        </a>
+      </div>
     </section>
 
     <footer class="footer glass">
@@ -64,12 +83,28 @@
 
   <script>
     (function () {
-      var btn = document.getElementById('about-toggle');
-      var panel = document.getElementById('about');
-      btn.addEventListener('click', function () {
-        var open = panel.hidden;
-        panel.hidden = !open;
-        btn.setAttribute('aria-expanded', String(open));
+      // About panel: toggled from the nav, closed with its × button.
+      var aboutToggle = document.getElementById('about-toggle');
+      var about = document.getElementById('about');
+      function setAbout(open) {
+        about.hidden = !open;
+        aboutToggle.setAttribute('aria-expanded', String(open));
+      }
+      aboutToggle.addEventListener('click', function () { setAbout(about.hidden); });
+      document.getElementById('about-close').addEventListener('click', function () {
+        setAbout(false);
+        aboutToggle.focus();
+      });
+
+      // Projects panel: the − / + button minimizes and restores the list.
+      var projectsToggle = document.getElementById('projects-toggle');
+      var projectList = document.getElementById('project-list');
+      projectsToggle.addEventListener('click', function () {
+        var open = projectList.hidden;
+        projectList.hidden = !open;
+        projectsToggle.setAttribute('aria-expanded', String(open));
+        projectsToggle.setAttribute('aria-label', open ? 'Minimize projects' : 'Expand projects');
+        projectsToggle.textContent = open ? '−' : '+';
       });
     })();
   </script>

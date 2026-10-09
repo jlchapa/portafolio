@@ -19,6 +19,24 @@
 
   --gutter: 28px;
   --gutter-y: 24px;
+
+  /* Psychedelic mode (night palette with bright yellow outlines) */
+  --psy-yellow: #ffe94a;
+  --psy-violet: #6b3bff;
+  --psy-night: rgba(20, 9, 56, 0.82);
+  --psy-fade: 0.8s ease;
+}
+
+/* Psychedelic mode swaps the overlay tokens for the night palette */
+body.psychedelic {
+  --ink: #fbf7ff;
+  --ink-2: #d9ccff;
+  --ink-3: var(--psy-yellow);
+  --rule: rgba(255, 233, 74, 0.35);
+  --page: #160a38;
+  --glass-bg: var(--psy-night);
+  --glass-bg-hover: rgba(70, 30, 160, 0.92);
+  --glass-border: var(--psy-yellow);
 }
 
 /* ==========================================================================
@@ -70,6 +88,7 @@ button { border-radius: 0; }
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
+  transition: background-color var(--psy-fade), border-color var(--psy-fade), color var(--psy-fade), box-shadow var(--psy-fade);
 }
 
 /* ==========================================================================
@@ -96,14 +115,19 @@ button { border-radius: 0; }
 
 .brand {
   pointer-events: auto;
-  font-family: var(--font-mono);
-  font-size: 18px;
-  letter-spacing: 0.02em;
-  padding: 6px 12px;
+  display: block;
+  padding: 10px 12px;
+}
+/* 34 x 5 pixel wordmark, drawn at 3 screen pixels per pixel */
+.brand-pixels {
+  display: block;
+  width: 102px;
+  height: 15px;
 }
 .brand:hover { color: var(--ink); background: var(--glass-bg-hover); }
 
 .about {
+  position: relative;
   pointer-events: auto;
   padding: 16px 18px;
   display: flex;
@@ -113,7 +137,27 @@ button { border-radius: 0; }
   line-height: 1.45;
 }
 .about[hidden] { display: none; }
-.about p { margin: 0; text-wrap: pretty; }
+.about p { margin: 0 24px 0 0; text-wrap: pretty; }
+.about-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+/* Small square icon buttons inside panels (close, minimize) */
+.panel-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink-2);
+  background: transparent;
+  cursor: pointer;
+}
+.panel-button:hover { color: var(--ink); background: var(--glass-bg-hover); }
 
 .about-facts {
   margin: 0;
@@ -157,9 +201,15 @@ button { border-radius: 0; }
   flex-direction: column;
 }
 
+.projects-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 6px 4px 16px;
+}
 .projects-title {
   margin: 0;
-  padding: 12px 16px 10px;
+  padding: 6px 0;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -211,11 +261,76 @@ button { border-radius: 0; }
 .muted { color: var(--ink-2); }
 
 /* ==========================================================================
+   Psychedelic mode
+   ========================================================================== */
+
+/* Panels get a bright yellow outline with a violet halo; titles and links
+   turn yellow, body text stays near-white on the dark glass. */
+body.psychedelic .glass {
+  box-shadow: 0 0 0 1px var(--psy-yellow), 0 0 18px rgba(255, 233, 74, 0.25);
+}
+body.psychedelic a,
+body.psychedelic button,
+body.psychedelic .projects-title,
+body.psychedelic .project-name {
+  color: var(--psy-yellow);
+  text-shadow: 0 0 1px #12052e, 0 0 6px rgba(107, 59, 255, 0.9);
+}
+body.psychedelic .project:hover { background: rgba(107, 59, 255, 0.35); }
+
+/* Countdown: a bar along the top edge that shrinks to the left */
+.psy-timer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.psy-timer[hidden] { display: none; }
+.psy-timer-bar {
+  height: 6px;
+  background: linear-gradient(90deg, var(--psy-yellow), #ff7af5, var(--psy-violet));
+  box-shadow: 0 0 12px var(--psy-yellow);
+  transform-origin: left center;
+}
+.psy-timer-label {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--psy-yellow);
+  background: var(--psy-night);
+  box-shadow: 0 0 0 1px var(--psy-yellow);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.psy-timer-label:hover { background: rgba(70, 30, 160, 0.92); }
+.psy-timer-label::after { content: ' ×'; }
+
+/* Over the diamond the pointer becomes an oversized bright yellow arrow */
+body.diamond-hover .scene canvas {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Cpath d='M4 2v38l10-9 7 15 7-3-7-15h13z' fill='%23ffe94a' stroke='%2312052e' stroke-width='2.5' stroke-linejoin='round'/%3E%3C/svg%3E") 4 2, pointer;
+}
+
+/* ==========================================================================
    Small screens
    ========================================================================== */
 @media (max-width: 600px) {
   :root { --gutter: 16px; --gutter-y: 16px; }
   /* The footer wraps to two lines here; keep the panel compact above it */
   .projects { bottom: 84px; }
+  .project-desc { display: none; }
+}
+
+/* Short windows: keep the projects panel compact so it clears the header */
+@media (max-height: 700px) {
   .project-desc { display: none; }
 }
