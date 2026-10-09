@@ -480,12 +480,15 @@
     scene.add(shadowCatcher);
 
     // The sand surface. buildGroundShapes() swaps in the real outline.
+    const GROUND_Y = -0.53;
     const groundSurface = new THREE.Mesh(
       new THREE.CircleGeometry(430, 64),
-      new THREE.MeshBasicMaterial({ color: '#f6f5f2' })
+      // Pulled slightly towards the camera in the depth test, so it always
+      // wins over the floating rock's rim tops that sit at the same height.
+      new THREE.MeshBasicMaterial({ color: '#f6f5f2', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
     );
     groundSurface.rotation.x = -Math.PI / 2;
-    groundSurface.position.y = -0.53;
+    groundSurface.position.y = GROUND_Y;
     scene.add(groundSurface);
 
     // Sand texture for the ground. Each texel is a color multiplier on top of
@@ -2272,18 +2275,35 @@
         }
 
         // Spikes: stepped cones, 3-5 voxels wide, hanging from deep columns.
+        // The top step reaches up to the shallowest column above it, so a
+        // spike is always joined to the rock along its whole width.
         for (let k = 0, tries = 0; k < settings.spikes && tries < settings.spikes * 20; tries++) {
           const i = Math.floor(random() * width);
           const j = Math.floor(random() * depth);
           const bottom = columnBottom[j * width + i];
           if (-bottom < settings.maxDepth * 0.35) continue;
+          const baseWidth = 3 + Math.floor(random() * 3);
+          const reach = Math.floor(baseWidth / 2);
+          let joinY = bottom; // the shallowest column bottom over the footprint
+          for (let dj = -reach; dj <= reach && joinY !== null; dj++) {
+            for (let di = -reach; di <= reach; di++) {
+              const cell = (j + dj) * width + (i + di);
+              const above = i + di >= 0 && i + di < width && j + dj >= 0 && j + dj < depth ? columnBottom[cell] : 0;
+              if (!above) {
+                joinY = null; // the footprint pokes out past the rim
+                break;
+              }
+              joinY = Math.max(joinY, above);
+            }
+          }
+          if (joinY === null) continue;
           k++;
           const x = left + i + 0.5;
           const z = -depth / 2 + j + 0.5;
-          const baseWidth = 3 + Math.floor(random() * 3);
           const levels = 3 + Math.floor(random() * 6);
-          let y = bottom;
-          for (let level = 0; level < levels; level++) {
+          pieces.push([x, joinY, z, baseWidth, joinY - (bottom - 2), 0.75 + random() * 0.2]);
+          let y = bottom - 2;
+          for (let level = 1; level < levels; level++) {
             const w = Math.max(1, Math.round(baseWidth * (1 - level / levels)));
             pieces.push([x, y, z, w, 2, 0.75 + random() * 0.2]);
             y -= 2;
@@ -2358,8 +2378,8 @@
       // The rock as one merged geometry. Column tops are hidden under the
       // sand, so each column only gets its bottom face plus the strips of
       // its sides that stick out below a shallower neighbor (or the rim).
-      // Rim columns keep their top, which closes the thin gap under the
-      // sand's edge.
+      // Rim columns rise to the sand's height and keep their top, so no gap
+      // shows under the sand's edge (the sand wins the depth test there).
       // Spike steps are boxes without a top.
       if (columns || pieces.length) {
         const builder = createQuadBuilder();
@@ -2391,14 +2411,15 @@
                 const inside = ni >= 0 && ni < width && nj >= 0 && nj < depth;
                 const neighborBottom = inside ? columns.bottom[nj * width + ni] : 0;
                 if (!neighborBottom) onRim = true;
-                const stripTop = neighborBottom ? Math.min(top, neighborBottom) : top;
+                // Facing out past the rim, the side reaches up to the sand.
+                const stripTop = neighborBottom ? Math.min(top, neighborBottom) : GROUND_Y;
                 if (stripTop <= bottom) continue; // the neighbor reaches as deep
                 min[1] = bottom;
                 max[1] = stripTop;
                 addFace(face, shade);
               }
               if (onRim) {
-                min[1] = max[1] = top;
+                min[1] = max[1] = GROUND_Y;
                 addFace(2, shade);
               }
             }
