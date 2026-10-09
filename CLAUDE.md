@@ -4,10 +4,10 @@ This is a static personal portfolio. Keep it vanilla: plain HTML, CSS, and JavaS
 
 ## Files
 
-index.html            page content, project rows, contact links, scroll fade script
-styles.css            design tokens, typography, layout, responsive styles
-shader-bg.js          <shader-bg> WebGL background and fallback tiers
-images/*.svg          project cover art
+index.html            overlay content: header, About panel, project rows, footer links
+styles.css            design tokens, glass panels, layout, responsive styles
+scene.js              three.js Tulum diorama (tree, birds, leaves, house, cenote, scatter)
+images/*.svg          legacy project cover art (unused by the current page)
 README.md             user-facing project notes
 
 There is no build step, package manager, linter, test suite, or CI.
@@ -16,6 +16,7 @@ There is no build step, package manager, linter, test suite, or CI.
 
 - Do not add analytics, or trackers.
 - Do not introduce React, Tailwind, npm, TypeScript, ES modules, or a bundler.
+- three.js is loaded as the global `THREE` from the r159 `three.min.js` CDN build (the last non-module build) with an SRI hash. Update the hash if the version changes.
 - Prefer existing CSS tokens in `:root` before adding new colors, spacing, or typography values.
 - Keep scripts loaded with plain `<script src="..."></script>`.
 
@@ -26,27 +27,21 @@ There is no build step, package manager, linter, test suite, or CI.
 | Change copy, links, or sections | `index.html` |
 | Add or edit a project card | `index.html` and optionally `images/*.svg` |
 | Adjust layout, colors, type, or breakpoints | `styles.css` |
-| Tune background detection or shader behavior | `shader-bg.js` |
+| Tune the 3D scene (tree, birds, colors, camera) | `CONFIG` at the top of `scene.js` |
 | Update project instructions | `README.md` or `CLAUDE.md` |
 
-## Background Notes
+## Scene Notes
 
-`<shader-bg>` supports three tiers:
+`scene.js` renders into `#scene`. All tweakable values live in the `CONFIG` object at the top of the file. The scene re-reads `CONFIG` every frame, so `tulumScene.config.<key> = value` in the browser console previews changes live.
 
-- `animated`: WebGL canvas
-- `static`: CSS gradient fallback
-- `solid`: no shader rendering
-
-`detectTier()` in `shader-bg.js` chooses a tier from URL override, reduced motion, Save-Data, device memory/CPU, WebGL support, and touch-device heuristics. Preserve all three tiers when changing shader code.
-
-The hero fade is driven by the inline scroll script in `index.html`, which updates `--scroll-fade` on `<html>`. The stacking order depends on `.page-bg`, `<shader-bg>`, `.bg-blend`, `.grain`, and `.shell`.
+Without `THREE` or WebGL2 the CSS gradient on `.scene` stays as the backdrop. The overlay panels sit on top of the canvas; `showOverlay` in `CONFIG` shifts the camera framing to leave room for them.
 
 ## Verification
 
 Use:
 
 ```bash
-node --check shader-bg.js
+node --check scene.js
 git diff --check
 ```
 
