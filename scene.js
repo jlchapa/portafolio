@@ -3,7 +3,7 @@
 // Renders a small voxel world with three.js: a ceiba tree with palm fronds and
 // buttress roots, a flock of birds that perch in its branches, leaves that fall
 // in the wind, an off-grid house with solar panels, a cenote, and scattered
-// rocks and bushes, all sitting on a floating block of sand.
+// rocks and bushes, all sitting on a floating rock island.
 //
 // How the tree moves: the tree is one instanced mesh of cubes ("voxels"). Every
 // voxel belongs to a "bone" (the trunk, a branch, or a single frond). Each frame
@@ -16,7 +16,7 @@
 
   // Everything you can tune about the scene. The scene re-reads this object on
   // every frame, so values can be tried live from the browser console, e.g.
-  // `tulumScene.config.leafStyle = 'Monstera'`.
+  // `tulumScene.config.birdCount = 120`.
   var CONFIG = {
     // Scene
     birdCount: 50,          // 0-150
@@ -56,7 +56,6 @@
     // Branches
     mainBranches: 4,        // 1-9
     branchDepth: 3,         // 0-3, how many times branches fork
-    branchStyle: 'Twisted', // Spreading | Upright | Weeping | Umbrella | Twisted
     branchSpread: 1.5,
     branchLength: 1.45,
     branchThickness: 0.9,
@@ -69,8 +68,6 @@
     frondLength: 16,
     frondWidth: 0.8,
     leafClusterSize: 2.7,
-    leafStyle: 'Palm',      // Jungle fronds | Palm | Monstera | Round puffs | Pine needles | Hanging vines
-    leafArrangement: 'Radial', // Radial | Upward | Drooping | Fan
     leavesOnBranches: true,
 
     // Birds
@@ -123,12 +120,9 @@
     cameraDrift: 1,         // slow automatic sway
     mouseParallax: 2,       // how much the camera follows the pointer
 
-    // Horizon
-    horizonStyle: 'Floating rock', // Soft fog | Ground haze | Clear | Diorama block | Floating rock
-    fogDistance: 1,
+    // Island: the sand's footprint, before the rim's wobble
     dioramaWidth: 165,
     dioramaDepth: 150,
-    dioramaThickness: 14,
 
     // Rocks
     showRocks: true,
@@ -147,8 +141,7 @@
     // Ground texture: patches of darker sand, pebbles and dry grass
     groundTexture: 1,       // 0 = flat color, 1 = full texture
 
-    // Floating rock under the island (horizonStyle 'Floating rock'), shaped
-    // by a grayscale depth map
+    // Floating rock under the island, shaped by a grayscale depth map
     islandDepth: 46,        // deepest point below the ground, in voxels
     islandRoughness: 1,     // 0-2, how uneven the outline and underside are
     islandSpikes: 14,       // chunky spikes hanging from the bottom
@@ -463,7 +456,6 @@
     const scene = new THREE.Scene();
     const clearColor = new THREE.Color('#ffffff');
     renderer.setClearColor(clearColor, 1);
-    scene.fog = new THREE.Fog(clearColor.clone(), 220, 420);
 
     // A near plane of 1.5 (not smaller) keeps enough depth precision at a
     // distance to separate the sand from the rock just under it.
@@ -566,25 +558,9 @@
       return texture;
     }
 
-    // The sides of the floating "diorama block" under the sand: an open,
-    // four-sided cylinder rotated so its faces line up with the axes.
-    const plinth = new THREE.Mesh(
-      new THREE.CylinderGeometry(1, 1, 1, 4, 1, true).rotateY(Math.PI / 4),
-      new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, flatShading: true })
-    );
-    plinth.receiveShadow = true;
-    plinth.visible = false;
-    scene.add(plinth);
-
     // Current horizon settings. centerX follows the middle of the scene so the
     // island stays centered under the tree, house and cenote.
-    const horizon = { mode: 'Ground haze', width: 220, depth: 130, thickness: 18, centerX: 0, roughness: 1, seed: 3 };
-
-    // Whether the ground is a floating island (a box or a rock) rather than
-    // an endless plain.
-    function isIsland() {
-      return horizon.mode === 'Diorama block' || horizon.mode === 'Floating rock';
-    }
+    const horizon = { width: 220, depth: 130, centerX: 0, roughness: 1, seed: 3 };
 
     // Distance from the island's center to the edge of the floating rock in
     // the direction of `angle`: a rounded rectangle (superellipse) with a few
@@ -600,11 +576,9 @@
     }
 
     // Whether (x, z) is on the island, at least `margin` in from its edge.
-    // Without a floating rock this is the rectangle the island covers.
     function onIsland(x, z, margin) {
       const dx = x - horizon.centerX;
-      if (horizon.mode === 'Floating rock') return Math.hypot(dx, z) < islandRadius(Math.atan2(z, dx)) - margin;
-      return Math.abs(dx) < horizon.width / 2 - margin && Math.abs(z) < horizon.depth / 2 - margin;
+      return Math.hypot(dx, z) < islandRadius(Math.atan2(z, dx)) - margin;
     }
 
     // Sky dome: a big inside-out sphere with a vertical gradient. It follows
@@ -619,7 +593,6 @@
         uniforms: skyUniforms,
         side: THREE.BackSide,
         depthWrite: false,
-        fog: false,
         vertexShader: [
           'varying vec3 vDirection;',
           'void main() {',
@@ -1026,21 +999,14 @@
       // --- Branches
       const branchTips = [];
 
-      // Shape presets per branch style:
+      // Branch shape:
       //   startLean  how far main branches lean out from the trunk
       //   childLean  how far child branches lean out from their parent
-      //   rise       upward pull per step (negative droops)
+      //   rise       upward pull per step
       //   jitter     random wobble per step
       //   keepDir    how much a child keeps its parent's direction
       //   twist      rotation around the vertical axis per step
-      const STYLES = {
-        Spreading: { startLean: 0.55, childLean: 0.55, rise: 0.012, jitter: 0.12, keepDir: 0.85, twist: 0 },
-        Upright: { startLean: 0.22, childLean: 0.3, rise: 0.035, jitter: 0.08, keepDir: 1, twist: 0 },
-        Weeping: { startLean: 0.75, childLean: 0.6, rise: -0.04, jitter: 0.1, keepDir: 0.7, twist: 0 },
-        Umbrella: { startLean: 0.3, childLean: 1.4, rise: -0.004, jitter: 0.08, keepDir: 0.25, twist: 0 },
-        Twisted: { startLean: 0.6, childLean: 0.6, rise: 0.01, jitter: 0.3, keepDir: 0.85, twist: 0.07 }
-      };
-      const style = STYLES[settings.branchStyle] || STYLES.Spreading;
+      const style = { startLean: 0.6, childLean: 0.6, rise: 0.01, jitter: 0.3, keepDir: 0.85, twist: 0.07 };
       const jitter = style.jitter + settings.branchCurl * 0.3;
 
       // Grows a branch step by step from (x, y, z), then forks it into
@@ -1051,16 +1017,14 @@
         const bone = addBone(parentBone, position, heading, length, radius, 'branch');
         const steps = Math.max(2, Math.round(length / 0.6));
         const twist = style.twist * (random() < 0.5 ? -1 : 1);
-        // Weeping trees only droop at their outermost branches.
-        const rise = depth < settings.branchDepth || settings.branchStyle !== 'Weeping' ? style.rise : 0.01;
 
         for (let i = 0; i < steps; i++) {
           const t = i / steps;
           position.addScaledVector(heading, 0.6);
           heading.x += (random() - 0.5) * jitter;
           heading.z += (random() - 0.5) * jitter;
-          heading.y += rise;
-          if (twist) heading.applyAxisAngle(UP, twist);
+          heading.y += style.rise;
+          heading.applyAxisAngle(UP, twist);
           if (position.y < 10 && heading.y < 0) heading.y = 0; // don't dig into the ground
           heading.normalize();
 
@@ -1068,7 +1032,7 @@
           if (i % 3 === 1) bones[bone].hitPoints.push(position.clone());
 
           // Small fronds sprouting along the thicker branches.
-          if (settings.leavesOnBranches && depth <= 1 && i % 6 === 4 && settings.leafStyle !== 'Round puffs') {
+          if (settings.leavesOnBranches && depth <= 1 && i % 6 === 4) {
             growFrond(bone, position.clone(), random() * 6.28, settings.frondLength * 0.5, 0.9 + random() * 0.14);
           }
         }
@@ -1086,7 +1050,7 @@
             growBranch(bone, position.x, position.y, position.z, childDirection, length * (0.62 + random() * 0.15), radius * 0.62, depth - 1);
           }
         } else {
-          branchTips.push({ position: position.clone(), bone, direction: heading.clone() });
+          branchTips.push({ position: position.clone(), bone });
         }
       }
 
@@ -1121,75 +1085,38 @@
 
       // --- Leaves
 
-      // Grows one frond (a leaf with its own bone) from `origin` in the
-      // direction of `angle`. The leaf style decides its outline: palms have
-      // separate leaflets, monsteras have holes, vines hang straight down.
+      // Grows one palm frond (a leaf with its own bone) from `origin` in the
+      // direction of `angle`: a midrib with separate leaflets on every other
+      // step, their edges hanging below the midrib.
       function growFrond(parentBone, origin, angle, length, frondShade) {
-        const leafStyle = settings.leafStyle;
-        const arrangement = settings.leafArrangement;
-
-        // Initial upward tilt and how quickly the frond droops.
-        let rise = arrangement === 'Upward' ? 1.3 + random() * 0.4
-          : arrangement === 'Drooping' ? -0.1 + random() * 0.2
-          : arrangement === 'Fan' ? 0.35 + random() * 0.3
-          : 0.5 + random() * 0.35;
-        let droopScale = arrangement === 'Drooping' ? 1.6 : arrangement === 'Upward' ? 0.6 : 1;
-        if (leafStyle === 'Palm') droopScale *= 1.3;
-        if (leafStyle === 'Monstera') length *= 0.8;
-        if (leafStyle === 'Hanging vines') {
-          rise = -5;
-          droopScale = 0;
-          length *= 1.6;
-        }
-
+        // Initial upward tilt; the frond droops more with every step.
+        const rise = 0.5 + random() * 0.35;
         const heading = new Vec3(Math.cos(angle), rise, Math.sin(angle)).normalize();
         const bone = addBone(parentBone, origin, heading, length, 0.3, 'frond');
         const across = new Vec3(-Math.sin(angle), 0, Math.cos(angle)); // leaf width direction
-        // How much the leaf edges hang below the midrib.
-        const edgeSlope = leafStyle === 'Palm' ? 0.55 : leafStyle === 'Hanging vines' ? 0 : 0.3;
+        const edgeSlope = 0.55; // how much the leaf edges hang below the midrib
         const position = origin.clone();
         const steps = Math.max(2, Math.round(length / 0.7));
-        const droop = (0.07 + random() * 0.05) * 8 / Math.max(length, 3) * droopScale;
+        const droop = (0.07 + random() * 0.05) * 8 / Math.max(length, 3) * 1.3;
 
         for (let i = 0; i < steps; i++) {
           const t = i / steps;
           position.addScaledVector(heading, 0.7);
           heading.y -= droop;
-          if (leafStyle === 'Hanging vines') {
-            heading.x += (random() - 0.5) * 0.08;
-            heading.z += (random() - 0.5) * 0.08;
-          }
           heading.normalize();
           if (position.y < 1) break;
 
-          // Half-width of the leaf at this step.
-          let halfWidth;
-          if (leafStyle === 'Palm') {
-            halfWidth = i % 2 === 0 && t > 0.08 ? Math.round(2.8 * settings.frondWidth * (1 - t * 0.55)) : 0;
-          } else if (leafStyle === 'Monstera') {
-            halfWidth = Math.round(Math.sin(Math.PI * Math.min(1, t * 1.15)) * 3.4 * settings.frondWidth);
-          } else if (leafStyle === 'Pine needles') {
-            halfWidth = i % 2 === 0 ? Math.max(1, Math.round(settings.frondWidth)) : 0;
-          } else if (leafStyle === 'Hanging vines') {
-            halfWidth = i % 3 === 0 ? Math.max(1, Math.round(settings.frondWidth)) : 0;
-          } else {
-            halfWidth = Math.round(Math.sin(Math.PI * Math.min(1, t * 1.1)) * 2.4 * settings.frondWidth);
-          }
+          // Half-width of the leaflets at this step (none on odd steps).
+          const halfWidth = i % 2 === 0 && t > 0.08 ? Math.round(2.8 * settings.frondWidth * (1 - t * 0.55)) : 0;
 
           for (let s = -halfWidth; s <= halfWidth; s++) {
             const fromCenter = Math.abs(s);
-            // Monstera holes.
-            if (leafStyle === 'Monstera' && fromCenter >= 1 && fromCenter < halfWidth && (i * 7 + fromCenter * 3) % 5 === 0) continue;
-            // Needles and vines are just the midrib plus the outer points.
-            if ((leafStyle === 'Pine needles' || leafStyle === 'Hanging vines') && s !== 0 && fromCenter !== halfWidth) continue;
-
-            const hasVein = leafStyle !== 'Pine needles' && leafStyle !== 'Hanging vines';
-            const type = s === 0 && t > 0.15 && hasVein ? 'vein'
+            const type = s === 0 && t > 0.15 ? 'vein'
               : (t > 0.72 || fromCenter === halfWidth && random() < 0.4) ? 'tip'
               : 'leaf';
             addVoxel(
               Math.round(position.x + across.x * s),
-              Math.round(position.y - fromCenter * edgeSlope + (leafStyle === 'Pine needles' ? fromCenter * 0.6 : 0)),
+              Math.round(position.y - fromCenter * edgeSlope),
               Math.round(position.z + across.z * s),
               type, bone, 'leaf',
               type === 'leaf' ? frondShade * (0.97 + random() * 0.06) : undefined
@@ -1199,33 +1126,16 @@
         }
       }
 
-      // Grows one round puff of foliage next to `origin` (for "Round puffs").
-      function growPuff(parentBone, origin, angle, radius) {
-        const offset = new Vec3(Math.cos(angle) * radius * 0.9, (random() - 0.3) * radius * 0.8, Math.sin(angle) * radius * 0.9);
-        const bone = addBone(parentBone, origin, offset, radius * 2, 0.6, 'frond');
-        const center = origin.clone().add(offset);
-        addSphere(center.x, center.y, center.z, radius, 'leaf', bone, 'leaf');
-        addSphere(center.x, center.y + radius * 0.45, center.z, radius * 0.65, 'tip', bone, 'leaf');
-        bones[bone].hitPoints.push(center);
-      }
-
-      // Every branch tip gets a small leafy knot and a ring (or fan) of fronds.
+      // Every branch tip gets a small leafy knot and a ring of fronds.
       for (const tip of branchTips) {
         if (settings.clusterSize > 0.3) {
           addSphere(tip.position.x, tip.position.y + 0.5, tip.position.z, settings.clusterSize, 'leaf', tip.bone, 'leaf');
         }
         const count = settings.fronds;
         const ringOffset = random() * 6.28;
-        const fanCenter = Math.atan2(tip.direction.z, tip.direction.x);
         for (let k = 0; k < count; k++) {
-          const angle = settings.leafArrangement === 'Fan'
-            ? fanCenter + (count > 1 ? (k / (count - 1) - 0.5) * 2.4 : 0) + (random() - 0.5) * 0.2
-            : ringOffset + k / count * Math.PI * 2 + (random() - 0.5) * 0.4;
-          if (settings.leafStyle === 'Round puffs') {
-            growPuff(tip.bone, tip.position, angle, Math.max(1, settings.frondLength * 0.22 * settings.frondWidth * (0.8 + random() * 0.4)));
-          } else {
-            growFrond(tip.bone, tip.position, angle, settings.frondLength * (0.75 + random() * 0.55), 0.9 + random() * 0.14);
-          }
+          const angle = ringOffset + k / count * Math.PI * 2 + (random() - 0.5) * 0.4;
+          growFrond(tip.bone, tip.position, angle, settings.frondLength * (0.75 + random() * 0.55), 0.9 + random() * 0.14);
         }
       }
 
@@ -1439,7 +1349,7 @@
       if (centerX !== horizon.centerX) {
         horizon.centerX = centerX;
         resyncNeeded = true; // the underside and scatter follow the island
-        if (isIsland()) buildGroundShapes();
+        buildGroundShapes();
       }
 
       // Vertically: from the top of the tree down past the island, far
@@ -1876,8 +1786,7 @@
     }
 
     // Rebuilds the sand surface and shadow catcher outlines: the floating
-    // rock's outline, a rectangle for the diorama block, or a huge disc for
-    // the open plains, with a hole for the cenote.
+    // rock's outline, with a hole for the cenote.
     function buildGroundShapes() {
       const rockOutline = () => {
         const shape = new THREE.Shape();
@@ -1892,31 +1801,8 @@
         shape.closePath();
         return shape;
       };
-      const rectangle = (x0, x1, y0, y1) => {
-        const shape = new THREE.Shape();
-        shape.moveTo(x0, y0);
-        shape.lineTo(x1, y0);
-        shape.lineTo(x1, y1);
-        shape.lineTo(x0, y1);
-        shape.closePath();
-        return shape;
-      };
-
-      let surfaceShape;
-      let shadowShape;
-      if (horizon.mode === 'Floating rock') {
-        surfaceShape = rockOutline();
-        shadowShape = rockOutline();
-      } else if (horizon.mode === 'Diorama block') {
-        const x0 = horizon.centerX - horizon.width / 2;
-        const x1 = horizon.centerX + horizon.width / 2;
-        surfaceShape = rectangle(x0, x1, -horizon.depth / 2, horizon.depth / 2);
-        shadowShape = rectangle(x0, x1, -horizon.depth / 2, horizon.depth / 2);
-      } else {
-        surfaceShape = new THREE.Shape();
-        surfaceShape.absarc(0, 0, 430, 0, Math.PI * 2, false);
-        shadowShape = rectangle(-400, 400, -400, 400);
-      }
+      const surfaceShape = rockOutline();
+      const shadowShape = rockOutline();
 
       if (cenote) {
         for (const shape of [surfaceShape, shadowShape]) {
@@ -2238,11 +2124,10 @@
       return { width, depth, gray };
     }
 
-    // Builds everything under the island. For the floating rock: one stone
-    // column per ground cell, short at the rim and deepest towards the
-    // middle like an upside-down mountain, made uneven by the depth map, with
-    // chunky stepped spikes hanging below. For the diorama block: a bottom
-    // cap. Both get vines hanging from the edge.
+    // Builds everything under the island: one stone column per ground cell,
+    // short at the rim and deepest towards the middle like an upside-down
+    // mountain, made uneven by the depth map, with chunky stepped spikes
+    // hanging below, and vines hanging from the edge.
     function buildUnderside(settings) {
       for (const mesh of undersideMeshes) {
         scene.remove(mesh);
@@ -2251,7 +2136,6 @@
       }
       undersideMeshes = [];
       undersideDepth = 0;
-      if (settings.mode !== 'Floating rock' && settings.mode !== 'Diorama block') return;
 
       const width = Math.round(horizon.width);
       const depth = Math.round(horizon.depth);
@@ -2259,97 +2143,83 @@
       const random = seededRandom(900 + settings.seed * 37);
       const stone = new THREE.Color(settings.color);
       const pieces = []; // spike steps: [x, topY, z, width, height, shade]
-      let columns = null; // the rock under the island, one column per ground cell
       const spikeTips = []; // [x, y, z], where vines can hang from
 
-      if (settings.mode === 'Diorama block') {
-        // The block's open bottom, in case the camera dips below it.
-        const bottomY = -0.53 - horizon.thickness;
-        const cap = new THREE.Mesh(
-          new THREE.PlaneGeometry(width, depth).rotateX(Math.PI / 2),
-          new THREE.MeshLambertMaterial({ color: new THREE.Color(settings.groundColor).multiplyScalar(0.6) })
-        );
-        cap.position.set(horizon.centerX, bottomY, 0);
-        scene.add(cap);
-        undersideMeshes.push(cap);
-        undersideDepth = horizon.thickness;
-      } else {
-        const map = buildIslandDepthMap(width, depth, 500 + settings.seed * 131);
-        const columnBottom = new Float32Array(width * depth); // 0 = outside the island
-        const columnTop = new Float32Array(width * depth);
-        const columnShade = new Float32Array(width * depth);
-        const topY = -1; // just under the sand surface
-        // Under the cenote the rock starts below its floor, so it never
-        // covers the water.
-        const cenoteBottom = cenote ? -Math.max(4, Math.round(settings.cenoteDepth)) - 0.6 : 0;
-        for (let j = 0; j < depth; j++) {
-          for (let i = 0; i < width; i++) {
-            const x = left + i + 0.5;
-            const z = -depth / 2 + j + 0.5;
-            const dx = x - horizon.centerX;
-            const edge = islandRadius(Math.atan2(z, dx));
-            const r = Math.hypot(dx, z);
-            if (r > edge + 0.3) continue;
-            let top = topY;
-            if (cenote) {
-              const cx = x - cenote.x;
-              const cz = z - cenote.z;
-              if (Math.hypot(cx, cz) < cenoteRadius(cenote, Math.atan2(cz, cx)) + 4) top = cenoteBottom;
-            }
-            const gray = map.gray[j * width + i];
-            // Fraction of the way from the middle (0) to the rim (1).
-            const s = Math.min(1, r / edge);
-            const profile = Math.pow(1 - s * s, 0.75);
-            const rim = 2 + gray * 4 * settings.roughness;
-            const lumpiness = Math.max(0.3, 1 - 0.5 * settings.roughness * (1 - gray));
-            const bottom = topY - Math.max(1, Math.round(rim + (settings.maxDepth - rim) * profile * lumpiness));
-            if (bottom >= top) continue; // fully above the cenote's floor
-            columnBottom[j * width + i] = bottom;
-            columnTop[j * width + i] = top;
-            columnShade[j * width + i] = 0.82 + gray * 0.28;
-            undersideDepth = Math.max(undersideDepth, -bottom);
-          }
-        }
-
-        // Spikes: stepped cones, 3-5 voxels wide, hanging from deep columns.
-        // The top step reaches up to the shallowest column above it, so a
-        // spike is always joined to the rock along its whole width.
-        for (let k = 0, tries = 0; k < settings.spikes && tries < settings.spikes * 20; tries++) {
-          const i = Math.floor(random() * width);
-          const j = Math.floor(random() * depth);
-          const bottom = columnBottom[j * width + i];
-          if (-bottom < settings.maxDepth * 0.35) continue;
-          const baseWidth = 3 + Math.floor(random() * 3);
-          const reach = Math.floor(baseWidth / 2);
-          let joinY = bottom; // the shallowest column bottom over the footprint
-          for (let dj = -reach; dj <= reach && joinY !== null; dj++) {
-            for (let di = -reach; di <= reach; di++) {
-              const cell = (j + dj) * width + (i + di);
-              const above = i + di >= 0 && i + di < width && j + dj >= 0 && j + dj < depth ? columnBottom[cell] : 0;
-              if (!above) {
-                joinY = null; // the footprint pokes out past the rim
-                break;
-              }
-              joinY = Math.max(joinY, above);
-            }
-          }
-          if (joinY === null) continue;
-          k++;
+      const map = buildIslandDepthMap(width, depth, 500 + settings.seed * 131);
+      const columnBottom = new Float32Array(width * depth); // 0 = outside the island
+      const columnTop = new Float32Array(width * depth);
+      const columnShade = new Float32Array(width * depth);
+      const topY = -1; // just under the sand surface
+      // Under the cenote the rock starts below its floor, so it never
+      // covers the water.
+      const cenoteBottom = cenote ? -Math.max(4, Math.round(settings.cenoteDepth)) - 0.6 : 0;
+      for (let j = 0; j < depth; j++) {
+        for (let i = 0; i < width; i++) {
           const x = left + i + 0.5;
           const z = -depth / 2 + j + 0.5;
-          const levels = 3 + Math.floor(random() * 6);
-          pieces.push([x, joinY, z, baseWidth, joinY - (bottom - 2), 0.75 + random() * 0.2]);
-          let y = bottom - 2;
-          for (let level = 1; level < levels; level++) {
-            const w = Math.max(1, Math.round(baseWidth * (1 - level / levels)));
-            pieces.push([x, y, z, w, 2, 0.75 + random() * 0.2]);
-            y -= 2;
+          const dx = x - horizon.centerX;
+          const edge = islandRadius(Math.atan2(z, dx));
+          const r = Math.hypot(dx, z);
+          if (r > edge + 0.3) continue;
+          let top = topY;
+          if (cenote) {
+            const cx = x - cenote.x;
+            const cz = z - cenote.z;
+            if (Math.hypot(cx, cz) < cenoteRadius(cenote, Math.atan2(cz, cx)) + 4) top = cenoteBottom;
           }
-          spikeTips.push([x, y, z]);
-          undersideDepth = Math.max(undersideDepth, -y);
+          const gray = map.gray[j * width + i];
+          // Fraction of the way from the middle (0) to the rim (1).
+          const s = Math.min(1, r / edge);
+          const profile = Math.pow(1 - s * s, 0.75);
+          const rim = 2 + gray * 4 * settings.roughness;
+          const lumpiness = Math.max(0.3, 1 - 0.5 * settings.roughness * (1 - gray));
+          const bottom = topY - Math.max(1, Math.round(rim + (settings.maxDepth - rim) * profile * lumpiness));
+          if (bottom >= top) continue; // fully above the cenote's floor
+          columnBottom[j * width + i] = bottom;
+          columnTop[j * width + i] = top;
+          columnShade[j * width + i] = 0.82 + gray * 0.28;
+          undersideDepth = Math.max(undersideDepth, -bottom);
         }
-        columns = { bottom: columnBottom, top: columnTop, shade: columnShade };
       }
+
+      // Spikes: stepped cones, 3-5 voxels wide, hanging from deep columns.
+      // The top step reaches up to the shallowest column above it, so a
+      // spike is always joined to the rock along its whole width.
+      for (let k = 0, tries = 0; k < settings.spikes && tries < settings.spikes * 20; tries++) {
+        const i = Math.floor(random() * width);
+        const j = Math.floor(random() * depth);
+        const bottom = columnBottom[j * width + i];
+        if (-bottom < settings.maxDepth * 0.35) continue;
+        const baseWidth = 3 + Math.floor(random() * 3);
+        const reach = Math.floor(baseWidth / 2);
+        let joinY = bottom; // the shallowest column bottom over the footprint
+        for (let dj = -reach; dj <= reach && joinY !== null; dj++) {
+          for (let di = -reach; di <= reach; di++) {
+            const cell = (j + dj) * width + (i + di);
+            const above = i + di >= 0 && i + di < width && j + dj >= 0 && j + dj < depth ? columnBottom[cell] : 0;
+            if (!above) {
+              joinY = null; // the footprint pokes out past the rim
+              break;
+            }
+            joinY = Math.max(joinY, above);
+          }
+        }
+        if (joinY === null) continue;
+        k++;
+        const x = left + i + 0.5;
+        const z = -depth / 2 + j + 0.5;
+        const levels = 3 + Math.floor(random() * 6);
+        pieces.push([x, joinY, z, baseWidth, joinY - (bottom - 2), 0.75 + random() * 0.2]);
+        let y = bottom - 2;
+        for (let level = 1; level < levels; level++) {
+          const w = Math.max(1, Math.round(baseWidth * (1 - level / levels)));
+          pieces.push([x, y, z, w, 2, 0.75 + random() * 0.2]);
+          y -= 2;
+        }
+        spikeTips.push([x, y, z]);
+        undersideDepth = Math.max(undersideDepth, -y);
+      }
+      const columns = { bottom: columnBottom, top: columnTop, shade: columnShade };
 
       // Vines: chains of half-size voxels with the odd leaf sticking out.
       const vineVoxels = []; // [x, y, z, color, shade]
@@ -2381,26 +2251,13 @@
         const clump = angle => Math.max(0, Math.sin(angle * 3 + phaseA) + 0.7 * Math.sin(angle * 7 + phaseB) - 0.2);
         const vineLength = () => settings.vineLength * (0.25 + random() * random() * 1.1);
         const top = -0.6;
-        if (settings.mode === 'Floating rock') {
-          // Roughly one chance per unit of rim.
-          const samples = Math.round(Math.PI * (width + depth));
-          for (let i = 0; i < samples; i++) {
-            const angle = i / samples * Math.PI * 2;
-            const radius = islandRadius(angle) + 0.3;
-            const facesFrontOrBack = Math.abs(Math.sin(angle)) > Math.abs(Math.cos(angle));
-            if (random() < chance * clump(angle)) addVine(horizon.centerX + Math.cos(angle) * radius, top, Math.sin(angle) * radius, vineLength(), facesFrontOrBack);
-          }
-        } else {
-          for (let i = 0; i < width; i++) {
-            const x = left + i + 0.5;
-            if (random() < chance) addVine(x, top, depth / 2 + 0.3, vineLength(), true);   // front
-            if (random() < chance) addVine(x, top, -depth / 2 - 0.3, vineLength(), true);  // back
-          }
-          for (let j = 0; j < depth; j++) {
-            const z = -depth / 2 + j + 0.5;
-            if (random() < chance) addVine(left - 0.3, top, z, vineLength(), false);         // left
-            if (random() < chance) addVine(left + width + 0.3, top, z, vineLength(), false); // right
-          }
+        // Roughly one chance per unit of rim.
+        const samples = Math.round(Math.PI * (width + depth));
+        for (let i = 0; i < samples; i++) {
+          const angle = i / samples * Math.PI * 2;
+          const radius = islandRadius(angle) + 0.3;
+          const facesFrontOrBack = Math.abs(Math.sin(angle)) > Math.abs(Math.cos(angle));
+          if (random() < chance * clump(angle)) addVine(horizon.centerX + Math.cos(angle) * radius, top, Math.sin(angle) * radius, vineLength(), facesFrontOrBack);
         }
         for (const [x, y, z] of spikeTips) {
           if (random() < settings.vineDensity * 0.5) addVine(x, y, z, 2 + random() * 4, random() < 0.5);
@@ -2418,71 +2275,67 @@
       // Rim columns rise to the sand's height and keep their top, so no gap
       // shows under the sand's edge (the sand wins the depth test there).
       // Spike steps are boxes without a top.
-      if (columns || pieces.length) {
-        const builder = createQuadBuilder();
-        const shades = []; // one per quad
-        const min = [0, 0, 0];
-        const max = [0, 0, 0];
-        const addFace = (face, shade) => {
-          builder.addBoxFace(min, max, face);
-          shades.push(shade);
-        };
-        if (columns) {
-          for (let j = 0; j < depth; j++) {
-            for (let i = 0; i < width; i++) {
-              const bottom = columns.bottom[j * width + i];
-              if (!bottom) continue;
-              const top = columns.top[j * width + i];
-              const shade = columns.shade[j * width + i];
-              const x = left + i;
-              const z = -depth / 2 + j;
-              min[0] = x; max[0] = x + 1;
-              min[2] = z; max[2] = z + 1;
-              min[1] = max[1] = bottom;
-              addFace(3, shade); // bottom
-              // Sides: +x, -x, +z, -z.
-              let onRim = false;
-              for (const [face, di, dj] of [[0, 1, 0], [1, -1, 0], [4, 0, 1], [5, 0, -1]]) {
-                const ni = i + di;
-                const nj = j + dj;
-                const inside = ni >= 0 && ni < width && nj >= 0 && nj < depth;
-                const neighborBottom = inside ? columns.bottom[nj * width + ni] : 0;
-                if (!neighborBottom) onRim = true;
-                // Facing out past the rim, the side reaches up to the sand.
-                const stripTop = neighborBottom ? Math.min(top, neighborBottom) : GROUND_Y;
-                if (stripTop <= bottom) continue; // the neighbor reaches as deep
-                min[1] = bottom;
-                max[1] = stripTop;
-                addFace(face, shade);
-              }
-              if (onRim) {
-                min[1] = max[1] = GROUND_Y;
-                addFace(2, shade);
-              }
-            }
+      const builder = createQuadBuilder();
+      const shades = []; // one per quad
+      const min = [0, 0, 0];
+      const max = [0, 0, 0];
+      const addFace = (face, shade) => {
+        builder.addBoxFace(min, max, face);
+        shades.push(shade);
+      };
+      for (let j = 0; j < depth; j++) {
+        for (let i = 0; i < width; i++) {
+          const bottom = columns.bottom[j * width + i];
+          if (!bottom) continue;
+          const top = columns.top[j * width + i];
+          const shade = columns.shade[j * width + i];
+          const x = left + i;
+          const z = -depth / 2 + j;
+          min[0] = x; max[0] = x + 1;
+          min[2] = z; max[2] = z + 1;
+          min[1] = max[1] = bottom;
+          addFace(3, shade); // bottom
+          // Sides: +x, -x, +z, -z.
+          let onRim = false;
+          for (const [face, di, dj] of [[0, 1, 0], [1, -1, 0], [4, 0, 1], [5, 0, -1]]) {
+            const ni = i + di;
+            const nj = j + dj;
+            const inside = ni >= 0 && ni < width && nj >= 0 && nj < depth;
+            const neighborBottom = inside ? columns.bottom[nj * width + ni] : 0;
+            if (!neighborBottom) onRim = true;
+            // Facing out past the rim, the side reaches up to the sand.
+            const stripTop = neighborBottom ? Math.min(top, neighborBottom) : GROUND_Y;
+            if (stripTop <= bottom) continue; // the neighbor reaches as deep
+            min[1] = bottom;
+            max[1] = stripTop;
+            addFace(face, shade);
+          }
+          if (onRim) {
+            min[1] = max[1] = GROUND_Y;
+            addFace(2, shade);
           }
         }
-        for (const p of pieces) {
-          const half = p[3] / 2;
-          min[0] = p[0] - half; max[0] = p[0] + half;
-          min[2] = p[2] - half; max[2] = p[2] + half;
-          min[1] = p[1] - p[4]; max[1] = p[1];
-          for (const face of [0, 1, 3, 4, 5]) addFace(face, p[5]);
-        }
-        const geometry = builder.build();
-        const fraction = v => ((v % 1) + 1) % 1;
-        rockOutlineUniforms.uGridOffset.value.set(fraction(left), 0, fraction(-depth / 2));
-        const colors = geometry.attributes.color.array;
-        shades.forEach((shade, quad) => {
-          scratchColor.copy(stone).multiplyScalar(shade);
-          for (let vertex = quad * 4; vertex < quad * 4 + 4; vertex++) scratchColor.toArray(colors, vertex * 3);
-        });
-        islandRockMaterial.vertexColors = true;
-        const mesh = new THREE.Mesh(geometry, islandRockMaterial);
-        mesh.receiveShadow = true;
-        scene.add(mesh);
-        undersideMeshes.push(mesh);
       }
+      for (const p of pieces) {
+        const half = p[3] / 2;
+        min[0] = p[0] - half; max[0] = p[0] + half;
+        min[2] = p[2] - half; max[2] = p[2] + half;
+        min[1] = p[1] - p[4]; max[1] = p[1];
+        for (const face of [0, 1, 3, 4, 5]) addFace(face, p[5]);
+      }
+      const geometry = builder.build();
+      const fraction = v => ((v % 1) + 1) % 1;
+      rockOutlineUniforms.uGridOffset.value.set(fraction(left), 0, fraction(-depth / 2));
+      const colors = geometry.attributes.color.array;
+      shades.forEach((shade, quad) => {
+        scratchColor.copy(stone).multiplyScalar(shade);
+        for (let vertex = quad * 4; vertex < quad * 4 + 4; vertex++) scratchColor.toArray(colors, vertex * 3);
+      });
+      islandRockMaterial.vertexColors = true;
+      const mesh = new THREE.Mesh(geometry, islandRockMaterial);
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      undersideMeshes.push(mesh);
 
       if (vineVoxels.length) {
         const mesh = new THREE.InstancedMesh(cubeGeometry.clone(), addNightGlow(new THREE.MeshLambertMaterial(), 0.6), vineVoxels.length);
@@ -2902,7 +2755,7 @@
     ]), gemMaterial);
 
     const spriteMaterial = (map, color) => new THREE.SpriteMaterial({
-      map, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false
+      map, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
     });
     const diamondGlow = new THREE.Sprite(spriteMaterial(makeSpriteTexture('glow'), '#9feaff'));
     diamondGlow.scale.setScalar(5);
@@ -3019,7 +2872,6 @@
       skyHorizon: new THREE.Color('#3b1478'),
       background: new THREE.Color('#160a38'),
       ground: new THREE.Color('#3a2a78'),
-      plinth: new THREE.Color('#24165a'),
       sun: new THREE.Color('#9d8cff'),
       ambientSky: new THREE.Color('#6a55ff'),
       ambientGround: new THREE.Color('#1c0a3a'),
@@ -3086,8 +2938,7 @@
       ].join('\n'),
       transparent: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      fog: false
+      blending: THREE.AdditiveBlending
     });
     const stars = new THREE.Points(starGeometry, starMaterial);
     stars.frustumCulled = false;
@@ -3112,7 +2963,7 @@
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', positions);
       const lines = new THREE.LineSegments(geometry,
-        new THREE.LineBasicMaterial({ color: '#ffe94a', transparent: true, opacity: 0, depthWrite: false, fog: false }));
+        new THREE.LineBasicMaterial({ color: '#ffe94a', transparent: true, opacity: 0, depthWrite: false }));
       lines.frustumCulled = false; // the points move every frame
       lines.visible = false;
       scene.add(lines);
@@ -3214,12 +3065,10 @@
       skyUniforms.uHorizonColor.value.copy(dayLook.skyHorizon).lerp(NIGHT.skyHorizon, a);
       clearColor.copy(dayLook.clear).lerp(NIGHT.background, a);
       renderer.setClearColor(clearColor, 1);
-      scene.fog.color.copy(dayLook.fog).lerp(NIGHT.background, a);
       groundSurface.material.color.copy(dayLook.ground).lerp(NIGHT.ground, a);
       groundSurface.material.opacity = 1 - 0.45 * a;
       rockOutlineUniforms.uOutline.value = a;
       setSeeThrough(a > 0);
-      plinth.material.color.copy(dayLook.plinth).lerp(NIGHT.plinth, a);
       sun.color.copy(dayLook.sun).lerp(NIGHT.sun, a);
       sun.intensity = dayLook.sunIntensity + (1.2 - dayLook.sunIntensity) * a;
       ambientLight.intensity = dayLook.ambientIntensity + (2.2 - dayLook.ambientIntensity) * a;
@@ -3298,8 +3147,8 @@
     // with the last version, and only the parts that changed are rebuilt.
     // ------------------------------------------------------------------------
     const dayLook = {
-      skyTop: new THREE.Color(), skyHorizon: new THREE.Color(), clear: new THREE.Color(), fog: new THREE.Color(),
-      ground: new THREE.Color(), plinth: new THREE.Color(), sun: new THREE.Color(), sunIntensity: 1, ambientIntensity: 1
+      skyTop: new THREE.Color(), skyHorizon: new THREE.Color(), clear: new THREE.Color(),
+      ground: new THREE.Color(), sun: new THREE.Color(), sunIntensity: 1, ambientIntensity: 1
     };
     const lastApplied = {
       tree: '', colors: '', birdColor: '', cenote: '', horizon: '', house: '', cloud: '', scatter: '',
@@ -3317,15 +3166,12 @@
         frondLength: c.frondLength,
         frondWidth: c.frondWidth,
         clusterSize: c.leafClusterSize,
-        branchStyle: c.branchStyle,
         branchSpread: c.branchSpread,
         branchThickness: c.branchThickness,
         branchLength: c.branchLength,
         branchCurl: c.branchCurl,
         forks: Math.max(1, Math.min(4, Math.round(c.branchForks))),
         lowerBranches: c.lowerBranches,
-        leafStyle: c.leafStyle,
-        leafArrangement: c.leafArrangement,
         leavesOnBranches: c.leavesOnBranches
       };
       const treeKey = JSON.stringify(treeSettings);
@@ -3374,7 +3220,7 @@
         colorBirds(c.birdColor);
       }
 
-      // Sky, background and fog color.
+      // Sky and background.
       skyUniforms.uTopColor.value.set(c.skyTopColor);
       skyUniforms.uHorizonColor.value.set(c.skyHorizonColor);
       sky.visible = groundSurface.visible = c.showSky;
@@ -3390,14 +3236,11 @@
       groundSurface.material.color.set(c.groundColor).multiplyScalar(1 / SAND_BRIGHTNESS);
       clearColor.set(c.showSky ? c.skyHorizonColor : c.backgroundColor);
       renderer.setClearColor(clearColor, 1);
-      scene.fog.color.copy(clearColor);
 
-      // Horizon and diorama block.
+      // Island outline.
       const horizonSettings = {
-        mode: c.horizonStyle,
         width: c.dioramaWidth,
         depth: c.dioramaDepth,
-        thickness: c.dioramaThickness,
         roughness: Math.max(0, Math.min(2, c.islandRoughness)),
         seed: Math.round(c.islandSeed)
       };
@@ -3407,22 +3250,12 @@
         Object.assign(horizon, horizonSettings);
         buildGroundShapes();
       }
-      plinth.visible = horizon.mode === 'Diorama block';
-      plinth.material.color.set(c.groundColor).multiplyScalar(0.72);
-      // The plinth is a 4-sided cylinder rotated 45°, so its faces sit at
-      // radius / √2; scale by w / √2 to make the block exactly w wide.
-      plinth.scale.set(horizon.width / Math.SQRT2, horizon.thickness, horizon.depth / Math.SQRT2);
-      plinth.position.set(horizon.centerX, -0.53 - horizon.thickness / 2, 0);
-      if (horizon.mode === 'Ground haze') scene.fog.color.set(c.groundColor);
-
-      // The floating rock (or block bottom) and vines under the island. They
+      // The floating rock and vines under the island. They
       // follow the island, so they rebuild when it moves or resizes, and the
       // vines use the leaf colors.
       const undersideSettings = {
-        mode: horizon.mode,
         width: horizon.width,
         depth: horizon.depth,
-        thickness: horizon.thickness,
         centerX: horizon.centerX,
         roughness: horizon.roughness,
         seed: horizon.seed,
@@ -3431,7 +3264,6 @@
         cenoteDepth: c.cenoteDepth,
         spikes: Math.max(0, Math.round(c.islandSpikes)),
         color: c.islandColor,
-        groundColor: c.groundColor,
         vinesOn: c.showVines,
         vineDensity: c.vineDensity,
         vineLength: c.vineLength,
@@ -3538,9 +3370,7 @@
       dayLook.skyTop.copy(skyUniforms.uTopColor.value);
       dayLook.skyHorizon.copy(skyUniforms.uHorizonColor.value);
       dayLook.clear.copy(clearColor);
-      dayLook.fog.copy(scene.fog.color);
       dayLook.ground.copy(groundSurface.material.color);
-      dayLook.plinth.copy(plinth.material.color);
       dayLook.sun.copy(sun.color);
       dayLook.sunIntensity = sun.intensity;
       dayLook.ambientIntensity = ambientLight.intensity;
@@ -3644,7 +3474,7 @@
 
     // Orbits the camera around the target with a slow drift and parallax
     // towards the pointer (gentle sideways, stronger up and down), applies
-    // the mouse-wheel zoom, and sets the fog around that distance.
+    // and the mouse-wheel zoom.
     function updateCamera(t, dt) {
       const c = CONFIG;
       const offset = pointer.cameraOffset;
@@ -3663,15 +3493,6 @@
       );
       camera.lookAt(cameraLookAt);
       sky.position.copy(camera.position);
-
-      const fogScale = c.fogDistance;
-      if (horizon.mode === 'Soft fog' || horizon.mode === 'Ground haze') {
-        scene.fog.near = viewDistance + 60 * fogScale;
-        scene.fog.far = viewDistance + 380 * fogScale;
-      } else {
-        scene.fog.near = 1e5;
-        scene.fog.far = 2e5;
-      }
     }
 
     // Drifts the cloud across the diorama (faster in strong wind), from its
