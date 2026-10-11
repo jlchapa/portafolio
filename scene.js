@@ -2836,6 +2836,8 @@
       ripple.size = size;
     }
 
+    // White by day, the psychedelic yellow at night.
+    const rippleNightColor = new THREE.Color('#ffe94a');
     function updateRipples(dt) {
       for (const ripple of ripples) {
         ripple.age += dt;
@@ -2844,6 +2846,7 @@
         if (life >= 1) continue;
         ripple.mesh.scale.setScalar((0.3 + life * 2.5) * ripple.size);
         ripple.mesh.material.opacity = 0.7 * (1 - life);
+        ripple.mesh.material.color.set(0xffffff).lerp(rippleNightColor, psychedelic.amount);
       }
     }
 
