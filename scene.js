@@ -2808,26 +2808,32 @@
       capy.group.scale.setScalar(CONFIG.capybaraSize);
     }
 
-    // Ripples on the cenote where the capybara drinks: a small pool of rings
-    // that grow and fade.
+    // Ripples on the cenote where the capybara drinks or the pointer drags
+    // across the water: a small pool of rings that grow and fade.
     const RIPPLE_LIFETIME = 1.6;
     const rippleGeometry = new THREE.RingGeometry(0.8, 1, 32).rotateX(-Math.PI / 2);
     const ripples = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 12; i++) {
       const mesh = new THREE.Mesh(rippleGeometry, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false }));
       mesh.visible = false;
       scene.add(mesh);
-      ripples.push({ mesh, age: RIPPLE_LIFETIME });
+      ripples.push({ mesh, age: RIPPLE_LIFETIME, size: 1 });
     }
     let nextRippleSlot = 0;
     const snoutTip = new Vec3();
 
-    // Starts a ripple on the water just in front of the capybara's snout.
-    function spawnRipple() {
+    // Starts a ripple on the water at (x, z), by default just in front of
+    // the capybara's snout. size scales how far it spreads.
+    function spawnRipple(x, z, size = 1) {
       const ripple = ripples[nextRippleSlot++ % ripples.length];
-      capybara.head.localToWorld(snoutTip.set(0, -0.1, 2.3));
-      ripple.mesh.position.set(snoutTip.x, cenote.waterY + 0.03, snoutTip.z);
+      if (x === undefined) {
+        capybara.head.localToWorld(snoutTip.set(0, -0.1, 2.3));
+        x = snoutTip.x;
+        z = snoutTip.z;
+      }
+      ripple.mesh.position.set(x, cenote.waterY + 0.03, z);
       ripple.age = 0;
+      ripple.size = size;
     }
 
     function updateRipples(dt) {
@@ -2836,7 +2842,7 @@
         const life = ripple.age / RIPPLE_LIFETIME;
         ripple.mesh.visible = life < 1;
         if (life >= 1) continue;
-        ripple.mesh.scale.setScalar(0.3 + life * 2.5);
+        ripple.mesh.scale.setScalar((0.3 + life * 2.5) * ripple.size);
         ripple.mesh.material.opacity = 0.7 * (1 - life);
       }
     }
@@ -3569,7 +3575,10 @@
       hasLastWorld: false,
       velocity: new Vec3(),        // how fast that crossing point moves
       speed: 0,
-      cameraOffset: new THREE.Vector2() // smoothed ndc used for parallax
+      cameraOffset: new THREE.Vector2(), // smoothed ndc used for parallax
+      down: false,                 // a button or finger is pressed on the scene
+      lastRipple: new Vec3(),      // where the last drag ripple started
+      lastRippleTime: -1
     };
 
     function onPointerMove(event) {
@@ -3589,6 +3598,12 @@
     }
 
     window.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerdown', event => {
+      onPointerMove(event); // a tap has no move before it
+      pointer.down = true;
+      pointer.lastRippleTime = -1;
+    });
+    for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, () => { pointer.down = false; });
 
     // Clicking (or tapping) the diamond starts psychedelic mode.
     renderer.domElement.addEventListener('click', event => {
@@ -3598,6 +3613,8 @@
 
     const raycaster = new THREE.Raycaster();
     const pointerPlane = new THREE.Plane(new Vec3(0, 0, 1), 0);
+    const waterPlane = new THREE.Plane(new Vec3(0, 1, 0), 0);
+    const waterHit = new Vec3();
     const ray = raycaster.ray;
 
     // Scales v down to at most length max (in place) and returns it.
@@ -3685,6 +3702,23 @@
         pointer.velocity.set(0, 0, 0);
       }
       pointer.speed = pointer.velocity.length();
+    }
+
+    // Pressing and dragging over the cenote leaves a trail of ripples: one
+    // where the press lands, then one every 1.5 units the pointer travels
+    // across the water (at most a few per second while it holds still).
+    function updateWaterDrag(t) {
+      if (!pointer.down || !pointer.onCanvas || !cenote) return;
+      waterPlane.constant = -cenote.waterY;
+      if (!ray.intersectPlane(waterPlane, waterHit)) return;
+      const dx = waterHit.x - cenote.x;
+      const dz = waterHit.z - cenote.z;
+      if (Math.hypot(dx, dz) > cenoteRadius(cenote, Math.atan2(dz, dx)) - 0.3) return;
+      const moved = pointer.lastRippleTime < 0 || waterHit.distanceTo(pointer.lastRipple) > 1.5;
+      if (!moved && t - pointer.lastRippleTime < 0.35) return;
+      spawnRipple(waterHit.x, waterHit.z, 2);
+      pointer.lastRipple.copy(waterHit);
+      pointer.lastRippleTime = t;
     }
 
     // Steps the spring simulation of every bone. Each bone is pulled towards
@@ -4101,6 +4135,7 @@
       updateCloud(t, dt);
       if (cenoteWater) cenoteWater.material.emissiveIntensity = 0.32 + Math.sin(t * 1.3) * 0.06; // shimmer
       updatePointer(dt);
+      updateWaterDrag(t);
       updateTreeBones(t, dt);
       updateFallingLeaves(t, dt);
       updateBirds(t, dt);

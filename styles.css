@@ -78,7 +78,10 @@ button { border-radius: 0; }
   /* Fallback while three.js loads, or when WebGL is unavailable */
   background: linear-gradient(to bottom, #4a8fd6 0%, var(--page) 62%, #e4cd9a 62%, #e4cd9a 100%);
 }
-.scene canvas { display: block; }
+.scene canvas {
+  display: block;
+  touch-action: none; /* dragging across the cenote makes ripples instead of panning */
+}
 
 /* ==========================================================================
    Glass panels
