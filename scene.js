@@ -507,6 +507,7 @@
     );
     groundSurface.rotation.x = -Math.PI / 2;
     groundSurface.position.y = GROUND_Y;
+    groundSurface.renderOrder = 1; // when translucent, drawn over the rock below
     scene.add(groundSurface);
 
     // Sand texture for the ground. Each texel is a color multiplier on top of
@@ -2183,17 +2184,44 @@
     // Stone for the floating rock: Lambert shading with horizontal strata.
     // Each 2.5-unit band of height gets its own brightness, and the stone
     // darkens further down, so the voxel columns read as layered rock.
+    // In psychedelic mode (uOutline 0..1) the stone fades out and leaves only
+    // a yellow outline around every voxel: grid lines on the unit cells of
+    // each face, found from the distance to the nearest cell edge in pixels.
+    const rockOutlineUniforms = {
+      uOutline: { value: 0 },
+      uOutlineColor: { value: new THREE.Color('#ffe94a') },
+      uGridOffset: { value: new Vec3() } // where the voxel grid lines sit
+    };
     const islandRockMaterial = new THREE.MeshLambertMaterial();
     islandRockMaterial.onBeforeCompile = function (shader) {
-      shader.vertexShader = 'varying float vRockY;\n' + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      Object.assign(shader.uniforms, rockOutlineUniforms);
+      shader.vertexShader = 'varying vec3 vRockPos;\nvarying vec3 vRockAxis;\n' + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
         vec4 rockWorld = vec4(transformed, 1.0);
         #ifdef USE_INSTANCING
           rockWorld = instanceMatrix * rockWorld;
         #endif
-        vRockY = (modelMatrix * rockWorld).y;`);
-      shader.fragmentShader = 'varying float vRockY;\n' + shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
-        float band = fract(sin(floor(vRockY / 2.5) * 12.9898) * 43758.5453);
-        diffuseColor.rgb *= (0.84 + 0.18 * band) * mix(1.0, 0.6, clamp(-vRockY / 60.0, 0.0, 1.0));`);
+        vRockPos = (modelMatrix * rockWorld).xyz;
+        vRockAxis = abs(objectNormal);`);
+      shader.fragmentShader = 'varying vec3 vRockPos;\nvarying vec3 vRockAxis;\nuniform float uOutline;\nuniform vec3 uOutlineColor;\nuniform vec3 uGridOffset;\n' + shader.fragmentShader
+        .replace('#include <color_fragment>', `#include <color_fragment>
+        float band = fract(sin(floor(vRockPos.y / 2.5) * 12.9898) * 43758.5453);
+        diffuseColor.rgb *= (0.84 + 0.18 * band) * mix(1.0, 0.6, clamp(-vRockPos.y / 60.0, 0.0, 1.0));`)
+        .replace('#include <opaque_fragment>', `if (uOutline > 0.0) {
+          vec3 cell = vRockPos - uGridOffset;
+          // Pixels to the nearest cell edge along each axis; the axis the
+          // face points along has no edges, so it is pushed out of the way.
+          vec3 pixel = max(fwidth(cell), vec3(1e-4)); // world units per pixel
+          vec3 edge = (0.5 - abs(fract(cell) - 0.5)) / pixel + vRockAxis * 1e4;
+          float line = 1.0 - smoothstep(0.3, 1.1, min(edge.x, min(edge.y, edge.z)));
+          // Where cells shrink to a few pixels the lines would merge into a
+          // solid fill, so they dim there.
+          vec3 inPlane = pixel * (1.0 - vRockAxis);
+          line *= mix(0.35, 1.0, smoothstep(2.5, 7.0, 1.0 / max(inPlane.x, max(inPlane.y, inPlane.z))));
+          outgoingLight = mix(outgoingLight, uOutlineColor, uOutline * line);
+          diffuseColor.a *= mix(1.0, line, uOutline);
+          if (diffuseColor.a < 0.01) discard;
+        }
+        #include <opaque_fragment>`);
     };
     islandRockMaterial.customProgramCacheKey = function () { return 'island-rock'; };
 
@@ -2442,6 +2470,8 @@
           for (const face of [0, 1, 3, 4, 5]) addFace(face, p[5]);
         }
         const geometry = builder.build();
+        const fraction = v => ((v % 1) + 1) % 1;
+        rockOutlineUniforms.uGridOffset.value.set(fraction(left), 0, fraction(-depth / 2));
         const colors = geometry.attributes.color.array;
         shades.forEach((shade, quad) => {
           scratchColor.copy(stone).multiplyScalar(shade);
@@ -3118,6 +3148,21 @@
       timerElement.hidden = true;
     }
 
+    // In psychedelic mode the sand turns translucent and the floating rock
+    // under it becomes a see-through yellow voxel outline. Both materials
+    // only switch to blending (and the rock to drawing its back faces too)
+    // while the night look is showing, so the day scene stays opaque.
+    let seeThrough = false;
+    function setSeeThrough(on) {
+      if (on === seeThrough) return;
+      seeThrough = on;
+      groundSurface.material.transparent = on;
+      groundSurface.material.needsUpdate = true;
+      islandRockMaterial.transparent = on;
+      islandRockMaterial.side = on ? THREE.DoubleSide : THREE.FrontSide;
+      islandRockMaterial.needsUpdate = true;
+    }
+
     // Counts down, eases between day and night, and blends the night palette
     // into the lights and colors syncConfig() just set from CONFIG.
     function updatePsychedelic(t) {
@@ -3162,6 +3207,9 @@
       renderer.setClearColor(clearColor, 1);
       scene.fog.color.copy(dayLook.fog).lerp(NIGHT.background, a);
       groundSurface.material.color.copy(dayLook.ground).lerp(NIGHT.ground, a);
+      groundSurface.material.opacity = 1 - 0.45 * a;
+      rockOutlineUniforms.uOutline.value = a;
+      setSeeThrough(a > 0);
       plinth.material.color.copy(dayLook.plinth).lerp(NIGHT.plinth, a);
       sun.color.copy(dayLook.sun).lerp(NIGHT.sun, a);
       sun.intensity = dayLook.sunIntensity + (1.2 - dayLook.sunIntensity) * a;
