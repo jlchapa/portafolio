@@ -507,6 +507,7 @@
     );
     groundSurface.rotation.x = -Math.PI / 2;
     groundSurface.position.y = GROUND_Y;
+    groundSurface.renderOrder = 1; // when translucent, drawn over the rock below
     scene.add(groundSurface);
 
     // Sand texture for the ground. Each texel is a color multiplier on top of
@@ -2183,17 +2184,44 @@
     // Stone for the floating rock: Lambert shading with horizontal strata.
     // Each 2.5-unit band of height gets its own brightness, and the stone
     // darkens further down, so the voxel columns read as layered rock.
+    // In psychedelic mode (uOutline 0..1) the stone fades out and leaves only
+    // a yellow outline around every voxel: grid lines on the unit cells of
+    // each face, found from the distance to the nearest cell edge in pixels.
+    const rockOutlineUniforms = {
+      uOutline: { value: 0 },
+      uOutlineColor: { value: new THREE.Color('#ffe94a') },
+      uGridOffset: { value: new Vec3() } // where the voxel grid lines sit
+    };
     const islandRockMaterial = new THREE.MeshLambertMaterial();
     islandRockMaterial.onBeforeCompile = function (shader) {
-      shader.vertexShader = 'varying float vRockY;\n' + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      Object.assign(shader.uniforms, rockOutlineUniforms);
+      shader.vertexShader = 'varying vec3 vRockPos;\nvarying vec3 vRockAxis;\n' + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
         vec4 rockWorld = vec4(transformed, 1.0);
         #ifdef USE_INSTANCING
           rockWorld = instanceMatrix * rockWorld;
         #endif
-        vRockY = (modelMatrix * rockWorld).y;`);
-      shader.fragmentShader = 'varying float vRockY;\n' + shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
-        float band = fract(sin(floor(vRockY / 2.5) * 12.9898) * 43758.5453);
-        diffuseColor.rgb *= (0.84 + 0.18 * band) * mix(1.0, 0.6, clamp(-vRockY / 60.0, 0.0, 1.0));`);
+        vRockPos = (modelMatrix * rockWorld).xyz;
+        vRockAxis = abs(objectNormal);`);
+      shader.fragmentShader = 'varying vec3 vRockPos;\nvarying vec3 vRockAxis;\nuniform float uOutline;\nuniform vec3 uOutlineColor;\nuniform vec3 uGridOffset;\n' + shader.fragmentShader
+        .replace('#include <color_fragment>', `#include <color_fragment>
+        float band = fract(sin(floor(vRockPos.y / 2.5) * 12.9898) * 43758.5453);
+        diffuseColor.rgb *= (0.84 + 0.18 * band) * mix(1.0, 0.6, clamp(-vRockPos.y / 60.0, 0.0, 1.0));`)
+        .replace('#include <opaque_fragment>', `if (uOutline > 0.0) {
+          vec3 cell = vRockPos - uGridOffset;
+          // Pixels to the nearest cell edge along each axis; the axis the
+          // face points along has no edges, so it is pushed out of the way.
+          vec3 pixel = max(fwidth(cell), vec3(1e-4)); // world units per pixel
+          vec3 edge = (0.5 - abs(fract(cell) - 0.5)) / pixel + vRockAxis * 1e4;
+          float line = 1.0 - smoothstep(0.3, 1.1, min(edge.x, min(edge.y, edge.z)));
+          // Where cells shrink to a few pixels the lines would merge into a
+          // solid fill, so they dim there.
+          vec3 inPlane = pixel * (1.0 - vRockAxis);
+          line *= mix(0.35, 1.0, smoothstep(2.5, 7.0, 1.0 / max(inPlane.x, max(inPlane.y, inPlane.z))));
+          outgoingLight = mix(outgoingLight, uOutlineColor, uOutline * line);
+          diffuseColor.a *= mix(1.0, line, uOutline);
+          if (diffuseColor.a < 0.01) discard;
+        }
+        #include <opaque_fragment>`);
     };
     islandRockMaterial.customProgramCacheKey = function () { return 'island-rock'; };
 
@@ -2442,6 +2470,8 @@
           for (const face of [0, 1, 3, 4, 5]) addFace(face, p[5]);
         }
         const geometry = builder.build();
+        const fraction = v => ((v % 1) + 1) % 1;
+        rockOutlineUniforms.uGridOffset.value.set(fraction(left), 0, fraction(-depth / 2));
         const colors = geometry.attributes.color.array;
         shades.forEach((shade, quad) => {
           scratchColor.copy(stone).multiplyScalar(shade);
@@ -2778,36 +2808,45 @@
       capy.group.scale.setScalar(CONFIG.capybaraSize);
     }
 
-    // Ripples on the cenote where the capybara drinks: a small pool of rings
-    // that grow and fade.
+    // Ripples on the cenote where the capybara drinks or the pointer drags
+    // across the water: a small pool of rings that grow and fade.
     const RIPPLE_LIFETIME = 1.6;
     const rippleGeometry = new THREE.RingGeometry(0.8, 1, 32).rotateX(-Math.PI / 2);
     const ripples = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 12; i++) {
       const mesh = new THREE.Mesh(rippleGeometry, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false }));
       mesh.visible = false;
       scene.add(mesh);
-      ripples.push({ mesh, age: RIPPLE_LIFETIME });
+      ripples.push({ mesh, age: RIPPLE_LIFETIME, size: 1 });
     }
     let nextRippleSlot = 0;
     const snoutTip = new Vec3();
 
-    // Starts a ripple on the water just in front of the capybara's snout.
-    function spawnRipple() {
+    // Starts a ripple on the water at (x, z), by default just in front of
+    // the capybara's snout. size scales how far it spreads.
+    function spawnRipple(x, z, size = 1) {
       const ripple = ripples[nextRippleSlot++ % ripples.length];
-      capybara.head.localToWorld(snoutTip.set(0, -0.1, 2.3));
-      ripple.mesh.position.set(snoutTip.x, cenote.waterY + 0.03, snoutTip.z);
+      if (x === undefined) {
+        capybara.head.localToWorld(snoutTip.set(0, -0.1, 2.3));
+        x = snoutTip.x;
+        z = snoutTip.z;
+      }
+      ripple.mesh.position.set(x, cenote.waterY + 0.03, z);
       ripple.age = 0;
+      ripple.size = size;
     }
 
+    // White by day, the psychedelic yellow at night.
+    const rippleNightColor = new THREE.Color('#ffe94a');
     function updateRipples(dt) {
       for (const ripple of ripples) {
         ripple.age += dt;
         const life = ripple.age / RIPPLE_LIFETIME;
         ripple.mesh.visible = life < 1;
         if (life >= 1) continue;
-        ripple.mesh.scale.setScalar(0.3 + life * 2.5);
+        ripple.mesh.scale.setScalar((0.3 + life * 2.5) * ripple.size);
         ripple.mesh.material.opacity = 0.7 * (1 - life);
+        ripple.mesh.material.color.set(0xffffff).lerp(rippleNightColor, psychedelic.amount);
       }
     }
 
@@ -3118,6 +3157,21 @@
       timerElement.hidden = true;
     }
 
+    // In psychedelic mode the sand turns translucent and the floating rock
+    // under it becomes a see-through yellow voxel outline. Both materials
+    // only switch to blending (and the rock to drawing its back faces too)
+    // while the night look is showing, so the day scene stays opaque.
+    let seeThrough = false;
+    function setSeeThrough(on) {
+      if (on === seeThrough) return;
+      seeThrough = on;
+      groundSurface.material.transparent = on;
+      groundSurface.material.needsUpdate = true;
+      islandRockMaterial.transparent = on;
+      islandRockMaterial.side = on ? THREE.DoubleSide : THREE.FrontSide;
+      islandRockMaterial.needsUpdate = true;
+    }
+
     // Counts down, eases between day and night, and blends the night palette
     // into the lights and colors syncConfig() just set from CONFIG.
     function updatePsychedelic(t) {
@@ -3162,6 +3216,9 @@
       renderer.setClearColor(clearColor, 1);
       scene.fog.color.copy(dayLook.fog).lerp(NIGHT.background, a);
       groundSurface.material.color.copy(dayLook.ground).lerp(NIGHT.ground, a);
+      groundSurface.material.opacity = 1 - 0.45 * a;
+      rockOutlineUniforms.uOutline.value = a;
+      setSeeThrough(a > 0);
       plinth.material.color.copy(dayLook.plinth).lerp(NIGHT.plinth, a);
       sun.color.copy(dayLook.sun).lerp(NIGHT.sun, a);
       sun.intensity = dayLook.sunIntensity + (1.2 - dayLook.sunIntensity) * a;
@@ -3521,7 +3578,10 @@
       hasLastWorld: false,
       velocity: new Vec3(),        // how fast that crossing point moves
       speed: 0,
-      cameraOffset: new THREE.Vector2() // smoothed ndc used for parallax
+      cameraOffset: new THREE.Vector2(), // smoothed ndc used for parallax
+      down: false,                 // a button or finger is pressed on the scene
+      lastRipple: new Vec3(),      // where the last drag ripple started
+      lastRippleTime: -1
     };
 
     function onPointerMove(event) {
@@ -3541,6 +3601,12 @@
     }
 
     window.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerdown', event => {
+      onPointerMove(event); // a tap has no move before it
+      pointer.down = true;
+      pointer.lastRippleTime = -1;
+    });
+    for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, () => { pointer.down = false; });
 
     // Clicking (or tapping) the diamond starts psychedelic mode.
     renderer.domElement.addEventListener('click', event => {
@@ -3550,6 +3616,8 @@
 
     const raycaster = new THREE.Raycaster();
     const pointerPlane = new THREE.Plane(new Vec3(0, 0, 1), 0);
+    const waterPlane = new THREE.Plane(new Vec3(0, 1, 0), 0);
+    const waterHit = new Vec3();
     const ray = raycaster.ray;
 
     // Scales v down to at most length max (in place) and returns it.
@@ -3637,6 +3705,23 @@
         pointer.velocity.set(0, 0, 0);
       }
       pointer.speed = pointer.velocity.length();
+    }
+
+    // Pressing and dragging over the cenote leaves a trail of ripples: one
+    // where the press lands, then one every 1.5 units the pointer travels
+    // across the water (at most a few per second while it holds still).
+    function updateWaterDrag(t) {
+      if (!pointer.down || !pointer.onCanvas || !cenote) return;
+      waterPlane.constant = -cenote.waterY;
+      if (!ray.intersectPlane(waterPlane, waterHit)) return;
+      const dx = waterHit.x - cenote.x;
+      const dz = waterHit.z - cenote.z;
+      if (Math.hypot(dx, dz) > cenoteRadius(cenote, Math.atan2(dz, dx)) - 0.3) return;
+      const moved = pointer.lastRippleTime < 0 || waterHit.distanceTo(pointer.lastRipple) > 1.5;
+      if (!moved && t - pointer.lastRippleTime < 0.35) return;
+      spawnRipple(waterHit.x, waterHit.z, 2);
+      pointer.lastRipple.copy(waterHit);
+      pointer.lastRippleTime = t;
     }
 
     // Steps the spring simulation of every bone. Each bone is pulled towards
@@ -4053,6 +4138,7 @@
       updateCloud(t, dt);
       if (cenoteWater) cenoteWater.material.emissiveIntensity = 0.32 + Math.sin(t * 1.3) * 0.06; // shimmer
       updatePointer(dt);
+      updateWaterDrag(t);
       updateTreeBones(t, dt);
       updateFallingLeaves(t, dt);
       updateBirds(t, dt);
